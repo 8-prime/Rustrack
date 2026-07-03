@@ -1,0 +1,17 @@
+[package]
+name = "renderer"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type=  ["cdylib", "rlib"]
+
+[dependencies]
+console_error_panic_hook = { version = "0.1.7", optional = true }
+wasm-bindgen = "0.2.126"
+wasm-bindgen-futures = "0.4.76"
+web-sys = { version = "0.3.103", features = ["HtmlCanvasElement", "console"] }
+wgpu = "30.0.0"
+
+[features]
+console_error_panic_hook = ["dep:console_error_panic_hook"]
