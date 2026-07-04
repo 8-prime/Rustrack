@@ -76,6 +76,14 @@ impl MqttReceiver {
         Ok(())
     }
 
+    async fn stop(&mut self) -> anyhow::Result<()> {
+        self.cancel.cancel();
+        if let Some(handle) = self.handle.take() {
+            handle.await?;
+        }
+        return Ok(());
+    }
+
     async fn receive_loop(
         client: AsyncClient,
         mut eventloop: rumqttc::EventLoop,
