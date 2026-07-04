@@ -8,11 +8,15 @@ export function RCanvas() {
     const run = async () => {
       await init();
       if (ref.current !== null) {
-        renderer(ref.current);
+        const canvas = ref.current;
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.floor(canvas.clientWidth * dpr);
+        canvas.height = Math.floor(canvas.clientHeight * dpr);
+        renderer(canvas);
       }
     };
     run();
   }, []);
 
-  return <canvas ref={ref}></canvas>;
+  return <canvas className="h-full w-full" ref={ref}></canvas>;
 }
