@@ -49,8 +49,6 @@ impl RuntimesManager {
                 publisher,
             },
         );
-        // TODO: construct MqttReceiver/Publisher/Statemanager from `config`
-        // once those have real constructors, then insert the Runtime here.
 
         Ok(())
     }

@@ -1,8 +1,11 @@
+use rumqttc::{MqttOptions, Transport};
+
 use crate::configuration::configuration::Configuration;
 
 pub struct MqttReceiver {
     pub system_id: String,
     pub mqtt_url: String,
+    pub mqtt_port: u16,
     pub mqtt_username: Option<String>,
     pub mqtt_password: Option<String>,
     pub topic_prefix: String,
@@ -16,10 +19,78 @@ impl MqttReceiver {
         Self {
             system_id: config.id.clone(),
             mqtt_url: config.mqtt_url.clone(),
+            mqtt_port: config.mqtt_port.clone(),
             mqtt_username: config.mqtt_username.clone(),
             mqtt_password: config.mqtt_password.clone(),
             topic_prefix: config.vda5050_topic_prefix.clone(),
             tls_skip_verify: !config.tls_skip_verify,
         }
+    }
+
+    pub async fn start(&self) {
+        let mut config = ClientConfig::builder()
+            .with_root_certificates(rustls::RootCertStore::empty())
+            .with_no_client_auth();
+
+        config
+            .dangerous()
+            .set_certificate_verifier(Arc::new(NoCertificateVerification));
+
+        let mut opts = MqttOptions::new("Rustrack", self.mqtt_url, self.mqtt_port);
+        if let Some(user) = self.mqtt_username
+            && let Some(password) = self.mqtt_password
+        {
+            opts.set_credentials(user, password);
+        }
+        if self.tls_skip_verify {
+            opts.set_transport(Transport::tls_with_config(config));
+        }
+
+        let (client, mut eventloop) = AsyncClient::new(opts, 128);
+        let topic = format!("{}/v2/robot/+/state", cfg.topic_prefix);
+        client.subscribe(&topic, QoS::AtMostOnce).await?;
+        tracing::info!(system = %cfg.system_id, "MQTT subscribed to {topic}");
+    }
+}
+
+#[derive(Debug)]
+struct NoCertificateVerification;
+
+impl ServerCertVerifier for NoCertificateVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::RSA_PSS_SHA256,
+        ]
     }
 }

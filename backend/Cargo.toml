@@ -6,5 +6,6 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.103"
 chrono = { version = "0.4.45", features = ["serde"] }
+rumqttc = "0.25.1"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = "0.7.18"
