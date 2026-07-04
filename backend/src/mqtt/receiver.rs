@@ -1,12 +1,17 @@
 use std::sync::Arc;
 
 use rumqttc::{
-    AsyncClient, MqttOptions, QoS, Transport,
+    AsyncClient, Event, MqttOptions, Packet, Publish, QoS, SubscribeFilter, Transport,
     tokio_rustls::rustls::{
         self, ClientConfig, DigitallySignedStruct, SignatureScheme,
         client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
         pki_types::{CertificateDer, ServerName, UnixTime},
     },
+};
+use serde_json::ser;
+use shared::vda5050::{
+    state::State,
+    visualization::{self, Visualization},
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -37,7 +42,7 @@ impl MqttReceiver {
             mqtt_username: config.mqtt_username.clone(),
             mqtt_password: config.mqtt_password.clone(),
             topic_prefix: config.vda5050_topic_prefix.clone(),
-            tls_skip_verify: !config.tls_skip_verify,
+            tls_skip_verify: config.tls_skip_verify,
             state_manager: state_manager,
             cancel: CancellationToken::new(),
             handle: None,
@@ -65,12 +70,21 @@ impl MqttReceiver {
 
         let (client, mut eventloop): (AsyncClient, rumqttc::EventLoop) =
             AsyncClient::new(opts, 128);
-        let topic = format!("{}/v2/robot/+/state", self.topic_prefix);
-        client.subscribe(&topic, QoS::AtMostOnce).await?;
+
+        let filters = vec![
+            SubscribeFilter::new(format!("{}/+/state", self.topic_prefix), QoS::AtMostOnce),
+            SubscribeFilter::new(
+                format!("{}/+/visualization", self.topic_prefix),
+                QoS::AtMostOnce,
+            ),
+        ];
+
+        client.subscribe_many(filters).await?;
 
         self.handle = Some(tokio::spawn(Self::receive_loop(
             client,
             eventloop,
+            self.state_manager.clone(),
             self.cancel.clone(),
         )));
         Ok(())
@@ -87,6 +101,7 @@ impl MqttReceiver {
     async fn receive_loop(
         client: AsyncClient,
         mut eventloop: rumqttc::EventLoop,
+        state_manager: Arc<StateManager>,
         cancel: CancellationToken,
     ) {
         loop {
@@ -98,6 +113,15 @@ impl MqttReceiver {
                 event = eventloop.poll() => {
                     match event  {
                         Ok(notification) => {
+                            match notification {
+                                Event::Incoming(Packet::Publish(pub_msg)) => {
+                                    match handle_messag(pub_msg, state_manager.clone()).await {
+                                        Ok(_) => todo!(),
+                                        Err(_) => todo!(),
+                                    }
+                                }
+                                _ => {}
+                            }
                             //push notification into state manager
                         },
                         Err(_) => todo!(),
@@ -106,6 +130,36 @@ impl MqttReceiver {
             }
         }
     }
+}
+
+async fn handle_messag(
+    publish_message: Publish,
+    state_manager: Arc<StateManager>,
+) -> anyhow::Result<()> {
+    let mut parts = publish_message.topic.rsplit('/');
+    let kind = parts.next();
+    let serial = parts.next();
+
+    match (serial, kind) {
+        (Some(serial), Some("state")) => {
+            match serde_json::from_slice::<State>(&publish_message.payload) {
+                Ok(state) => state_manager.update_state(serial.to_string(), state).await?,
+                Err(e) => todo!(),
+            }
+        }
+        (Some(serial), Some("visualization")) => {
+            match serde_json::from_slice::<Visualization>(&publish_message.payload) {
+                Ok(visualization) => {
+                    state_manager
+                        .update_visualization(serial.to_string(), visualization)
+                        .await?
+                }
+                Err(_) => todo!(),
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 #[derive(Debug)]

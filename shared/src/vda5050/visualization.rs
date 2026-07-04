@@ -12,14 +12,14 @@ pub struct Visualization {
     intermediate_path: Option<IntermediatePath>,
     /// Manufacturer of the mobile robot
     manufacturer: String,
-    mobile_robot_position: Option<MobileRobotPosition>,
-    planned_path: Option<PlannedPath>,
+    pub mobile_robot_position: Option<MobileRobotPosition>,
+    pub planned_path: Option<PlannedPath>,
     /// Header ID of the state message this visualization message refers to.
     reference_state_header_id: i64,
     /// Serial number of the mobile robot.
     serial_number: String,
     /// Timestamp in ISO8601 format (YYYY-MM-DDTHH:mm:ss.fffZ).
-    timestamp: String,
+    pub timestamp: String,
     velocity: Option<Velocity>,
     /// Version of the protocol [Major].[Minor].[Patch]
     version: String,
@@ -67,16 +67,16 @@ pub struct MobileRobotPosition {
     localized: bool,
     /// Unique identification of the map.
     map_id: String,
-    theta: f64,
-    x: f64,
-    y: f64,
+    pub theta: f64,
+    pub x: f64,
+    pub y: f64,
 }
 
 /// Represents a path within the robot's currently active order as NURBS.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlannedPath {
-    trajectory: Trajectory,
+    pub trajectory: Trajectory,
     /// Array of nodeIds as communicated in the currently executed order that are traversed
     /// within the shared planned path.
     traversed_nodes: Option<Vec<String>>,
@@ -91,22 +91,22 @@ pub struct PlannedPath {
 pub struct Trajectory {
     /// List of JSON controlPoint objects defining the control points of the NURBS, which
     /// includes the beginning and end point.
-    control_points: Vec<ControlPoint>,
+    pub control_points: Vec<ControlPoint>,
     /// Defines the number of control points that influence any given point on the curve.
     /// Increasing the degree increases differentiability. If not defined, the default value is 1.
-    degree: Option<i64>,
+    pub degree: Option<i64>,
     /// Sequence of parameter values that determine where and how the control points affect the
     /// NURBS curve. knotVector has size of number of control points + degree + 1.
-    knot_vector: Option<Vec<f64>>,
+    pub knot_vector: Option<Vec<f64>>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ControlPoint {
     /// The weight, with which this control point pulls on the curve. When not defined, the
     /// default will be 1.0.
-    weight: Option<f64>,
-    x: f64,
-    y: f64,
+    pub weight: Option<f64>,
+    pub x: f64,
+    pub y: f64,
 }
 
 /// The mobile robot's velocity in mobile robot's coordinates

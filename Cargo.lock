@@ -135,6 +135,7 @@ dependencies = [
  "rumqttc",
  "serde",
  "serde_json",
+ "shared",
  "tokio",
  "tokio-util",
  "uuid",

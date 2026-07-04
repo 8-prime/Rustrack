@@ -52,7 +52,7 @@ pub struct State {
     manufacturer: String,
     /// Array of map-objects that are currently stored on the mobile robot.
     maps: Option<Vec<Map>>,
-    mobile_robot_position: Option<MobileRobotPosition>,
+    pub mobile_robot_position: Option<MobileRobotPosition>,
     /// True: mobile robot is almost at the end of the base and will reduce speed if no new base
     /// is transmitted. Trigger for fleet control to send new base
     /// False: no base update required.
@@ -74,13 +74,13 @@ pub struct State {
     /// resume the order.
     /// False: The mobile robot is currently not in a paused state.
     paused: Option<bool>,
-    planned_path: Option<PlannedPath>,
+    pub planned_path: Option<PlannedPath>,
     power_supply: PowerSupply,
     safety_state: SafetyState,
     /// Serial number of the mobile robot.
     serial_number: String,
     /// Timestamp in ISO8601 format (YYYY-MM-DDTHH:mm:ss.fffZ).
-    timestamp: String,
+    pub timestamp: String,
     /// The mobile robot's velocity in mobile robot coordinates
     velocity: Option<Velocity>,
     /// Version of the protocol [Major].[Minor].[Patch]
@@ -209,22 +209,22 @@ pub struct EdgeState {
 pub struct Trajectory {
     /// List of JSON controlPoint objects defining the control points of the NURBS, which
     /// includes the beginning and end point.
-    control_points: Vec<ControlPoint>,
+    pub control_points: Vec<ControlPoint>,
     /// Defines the number of control points that influence any given point on the curve.
     /// Increasing the degree increases differentiability. If not defined, the default value is 1.
-    degree: Option<i64>,
+    pub degree: Option<i64>,
     /// Sequence of parameter values that determine where and how the control points affect the
     /// NURBS curve. knotVector has size of number of control points + degree + 1.
-    knot_vector: Option<Vec<f64>>,
+    pub knot_vector: Option<Vec<f64>>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ControlPoint {
     /// The weight, with which this control point pulls on the curve. When not defined, the
     /// default will be 1.0.
-    weight: Option<f64>,
-    x: f64,
-    y: f64,
+    pub weight: Option<f64>,
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -447,9 +447,9 @@ pub struct MobileRobotPosition {
     localized: bool,
     /// Unique identification of the map.
     map_id: String,
-    theta: f64,
-    x: f64,
-    y: f64,
+    pub theta: f64,
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -498,7 +498,7 @@ pub enum OperatingMode {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlannedPath {
-    trajectory: Trajectory,
+    pub trajectory: Trajectory,
     /// Array of nodeIds as communicated in the currently executed order that are traversed
     /// within the shared planned path.
     traversed_nodes: Option<Vec<String>>,
