@@ -1,3 +1,3 @@
 mod manager;
 mod publisher;
-mod state;
+pub mod state;

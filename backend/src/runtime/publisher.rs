@@ -2,17 +2,17 @@ use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::broadcast;
 
-use crate::runtime::{manager::MobileRobotState, state::StateManager};
+use crate::runtime::state::{MobileRobotState, StateManager};
 
 pub type StateSnapshot = Arc<HashMap<String, MobileRobotState>>;
 
 pub struct Publisher {
     sender: broadcast::Sender<StateSnapshot>,
-    statemanager: &StateManager,
+    statemanager: Arc<StateManager>,
 }
 
 impl Publisher {
-    pub fn new(state_manager: &StateManager) -> Self {
+    pub fn new(state_manager: Arc<StateManager>) -> Self {
         let (sender, _) = broadcast::channel(16);
         Self {
             sender,

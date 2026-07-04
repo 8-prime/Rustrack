@@ -1,6 +1,8 @@
 use anyhow::{Result, anyhow, bail};
-use chrono::{DateTime, Utc};
-use std::{collections::HashMap, sync::RwLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use crate::{
     configuration::configuration::Configuration,
@@ -10,7 +12,7 @@ use crate::{
 
 pub struct Runtime {
     pub runtime_id: String,
-    pub state_manager: Statemanager,
+    pub state_manager: Arc<StateManager>,
     pub mqtt_receiver: MqttReceiver,
     pub publisher: Publisher,
 }
@@ -36,12 +38,12 @@ impl RuntimesManager {
             bail!("runtime '{}' already exists", config.id);
         }
 
-        let manager = StateManager::new();
-        let mqtt_receiver = MqttReceiver::new(&config);
-        let publisher = Publisher::new(&manager);
+        let manager = Arc::new(StateManager::new());
+        let mqtt_receiver = MqttReceiver::new(&config, manager.clone());
+        let publisher = Publisher::new(manager.clone());
 
         runtimes.insert(
-            config.id,
+            config.id.clone(),
             Runtime {
                 runtime_id: config.id,
                 state_manager: manager,

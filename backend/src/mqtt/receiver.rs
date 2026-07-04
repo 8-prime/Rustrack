@@ -1,6 +1,17 @@
-use rumqttc::{MqttOptions, Transport};
+use std::sync::Arc;
 
-use crate::configuration::configuration::Configuration;
+use rumqttc::{
+    AsyncClient, MqttOptions, QoS, Transport,
+    tokio_rustls::rustls::{
+        self, ClientConfig, DigitallySignedStruct, SignatureScheme,
+        client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+        pki_types::{CertificateDer, ServerName, UnixTime},
+    },
+};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+
+use crate::{configuration::configuration::Configuration, runtime::state::StateManager};
 
 pub struct MqttReceiver {
     pub system_id: String,
@@ -10,12 +21,15 @@ pub struct MqttReceiver {
     pub mqtt_password: Option<String>,
     pub topic_prefix: String,
     pub tls_skip_verify: bool,
+    state_manager: Arc<StateManager>,
+    cancel: CancellationToken,
+    handle: Option<JoinHandle<()>>,
 }
 
 impl MqttReceiver {
     // TODO: this only carries connection settings for now; actually
     // establishing/spawning the MQTT connection is separate follow-up work.
-    pub fn new(config: &Configuration) -> Self {
+    pub fn new(config: &Configuration, state_manager: Arc<StateManager>) -> Self {
         Self {
             system_id: config.id.clone(),
             mqtt_url: config.mqtt_url.clone(),
@@ -24,10 +38,13 @@ impl MqttReceiver {
             mqtt_password: config.mqtt_password.clone(),
             topic_prefix: config.vda5050_topic_prefix.clone(),
             tls_skip_verify: !config.tls_skip_verify,
+            state_manager: state_manager,
+            cancel: CancellationToken::new(),
+            handle: None,
         }
     }
 
-    pub async fn start(&self) {
+    pub async fn start(&mut self) -> anyhow::Result<()> {
         let mut config = ClientConfig::builder()
             .with_root_certificates(rustls::RootCertStore::empty())
             .with_no_client_auth();
@@ -36,20 +53,50 @@ impl MqttReceiver {
             .dangerous()
             .set_certificate_verifier(Arc::new(NoCertificateVerification));
 
-        let mut opts = MqttOptions::new("Rustrack", self.mqtt_url, self.mqtt_port);
-        if let Some(user) = self.mqtt_username
-            && let Some(password) = self.mqtt_password
+        let mut opts = MqttOptions::new("Rustrack", self.mqtt_url.clone(), self.mqtt_port);
+        if let Some(user) = &self.mqtt_username
+            && let Some(password) = &self.mqtt_password
         {
             opts.set_credentials(user, password);
         }
         if self.tls_skip_verify {
-            opts.set_transport(Transport::tls_with_config(config));
+            opts.set_transport(Transport::tls_with_config(config.into()));
         }
 
-        let (client, mut eventloop) = AsyncClient::new(opts, 128);
-        let topic = format!("{}/v2/robot/+/state", cfg.topic_prefix);
+        let (client, mut eventloop): (AsyncClient, rumqttc::EventLoop) =
+            AsyncClient::new(opts, 128);
+        let topic = format!("{}/v2/robot/+/state", self.topic_prefix);
         client.subscribe(&topic, QoS::AtMostOnce).await?;
-        tracing::info!(system = %cfg.system_id, "MQTT subscribed to {topic}");
+
+        self.handle = Some(tokio::spawn(Self::receive_loop(
+            client,
+            eventloop,
+            self.cancel.clone(),
+        )));
+        Ok(())
+    }
+
+    async fn receive_loop(
+        client: AsyncClient,
+        mut eventloop: rumqttc::EventLoop,
+        cancel: CancellationToken,
+    ) {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    let _ = client.disconnect().await;
+                    break;
+                }
+                event = eventloop.poll() => {
+                    match event  {
+                        Ok(notification) => {
+                            //push notification into state manager
+                        },
+                        Err(_) => todo!(),
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -64,7 +111,7 @@ impl ServerCertVerifier for NoCertificateVerification {
         _server_name: &ServerName<'_>,
         _ocsp_response: &[u8],
         _now: UnixTime,
-    ) -> Result<ServerCertVerified, Error> {
+    ) -> Result<ServerCertVerified, rustls::Error> {
         Ok(ServerCertVerified::assertion())
     }
 
@@ -73,7 +120,7 @@ impl ServerCertVerifier for NoCertificateVerification {
         _message: &[u8],
         _cert: &CertificateDer<'_>,
         _dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, Error> {
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
         Ok(HandshakeSignatureValid::assertion())
     }
 
@@ -82,7 +129,7 @@ impl ServerCertVerifier for NoCertificateVerification {
         _message: &[u8],
         _cert: &CertificateDer<'_>,
         _dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, Error> {
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
         Ok(HandshakeSignatureValid::assertion())
     }
 
