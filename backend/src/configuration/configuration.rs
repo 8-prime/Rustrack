@@ -1,3 +1,6 @@
+use serde::Serialize;
+
+#[derive(Clone, Serialize)]
 pub struct Configuration {
     pub id: String,
     pub name: String,

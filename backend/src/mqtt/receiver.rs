@@ -29,7 +29,7 @@ pub struct MqttReceiver {
 impl MqttReceiver {
     // TODO: this only carries connection settings for now; actually
     // establishing/spawning the MQTT connection is separate follow-up work.
-    pub fn new(config: &Configuration, state_manager: Arc<StateManager>) -> Self {
+    pub fn new(config: Configuration, state_manager: Arc<StateManager>) -> Self {
         Self {
             system_id: config.id.clone(),
             mqtt_url: config.mqtt_url.clone(),
