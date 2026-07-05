@@ -32,11 +32,24 @@ pub struct SystemInfo {
 
 impl Runtime {
     pub async fn start(&mut self) -> anyhow::Result<()> {
+        if matches!(self.state, RuntimeState::Running) {
+            return Ok(());
+        }
         self.mqtt_receiver.start().await?;
         self.publisher.start()?;
+        self.state = RuntimeState::Running;
         Ok(())
     }
-    pub async fn stop(&self) {}
+
+    pub async fn stop(&mut self) -> anyhow::Result<()> {
+        if matches!(self.state, RuntimeState::Stopped) {
+            return Ok(());
+        }
+        self.mqtt_receiver.stop().await?;
+        self.publisher.stop().await?;
+        self.state = RuntimeState::Stopped;
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -98,8 +111,8 @@ impl RuntimesManager {
     pub async fn remove(&self, id: String) -> Result<()> {
         let mut runtimes = self.runtimes.write().await;
 
-        if let Some(runtime) = runtimes.get(&id) {
-            runtime.stop().await;
+        if let Some(runtime) = runtimes.get_mut(&id) {
+            runtime.stop().await?;
         }
 
         _ = runtimes.remove(&id);
@@ -109,9 +122,10 @@ impl RuntimesManager {
     pub async fn start(&self, id: String) -> Result<()> {
         let mut runtimes = self.runtimes.write().await;
 
-        if let Some(runtime) = runtimes.get_mut(&id) {
-            runtime.start().await?;
-        }
+        let Some(runtime) = runtimes.get_mut(&id) else {
+            bail!("runtime '{}' does not exist", id);
+        };
+        runtime.start().await?;
 
         Ok(())
     }
@@ -119,9 +133,10 @@ impl RuntimesManager {
     pub async fn stop(&self, id: String) -> Result<()> {
         let mut runtimes = self.runtimes.write().await;
 
-        if let Some(runtime) = runtimes.get_mut(&id) {
-            runtime.stop().await;
-        }
+        let Some(runtime) = runtimes.get_mut(&id) else {
+            bail!("runtime '{}' does not exist", id);
+        };
+        runtime.stop().await?;
 
         Ok(())
     }

@@ -89,7 +89,7 @@ impl MqttReceiver {
         Ok(())
     }
 
-    async fn stop(&mut self) -> anyhow::Result<()> {
+    pub async fn stop(&mut self) -> anyhow::Result<()> {
         self.cancel.cancel();
         if let Some(handle) = self.handle.take() {
             handle.await?;
