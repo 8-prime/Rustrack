@@ -107,19 +107,19 @@ impl RuntimesManager {
     }
 
     pub async fn start(&self, id: String) -> Result<()> {
-        let runtimes = self.runtimes.read().await;
+        let mut runtimes = self.runtimes.write().await;
 
-        if let Some(runtime) = runtimes.get(&id) {
-            runtime.start().await;
+        if let Some(runtime) = runtimes.get_mut(&id) {
+            runtime.start().await?;
         }
 
         Ok(())
     }
 
     pub async fn stop(&self, id: String) -> Result<()> {
-        let runtimes = self.runtimes.read().await;
+        let mut runtimes = self.runtimes.write().await;
 
-        if let Some(runtime) = runtimes.get(&id) {
+        if let Some(runtime) = runtimes.get_mut(&id) {
             runtime.stop().await;
         }
 
