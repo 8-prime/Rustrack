@@ -1,12 +1,15 @@
-use rustrack_shared::vda5050::v2_0::state::{
-    AgvError, AgvPosition, AgvState, BatteryState, ControlPoint as VdaControlPoint, EdgeState,
-    ErrorLevel, NodeState, SafetyState, Trajectory, Velocity,
+use rustrack_shared::vda5050::state::{
+    ActiveEmergencyStop, ControlPoint, EdgeState, Error, ErrorLevel, MobileRobotPosition,
+    NodePosition, NodeState, OperatingMode, PowerSupply, SafetyState, State, Trajectory, Velocity,
 };
 
 use crate::{
     map::{Edge, NodeMap},
     scenario::Scenario,
 };
+
+/// Map identifier reported in the VDA5050 state. The simulator uses a single map.
+const MAP_ID: &str = "sim-map";
 
 enum Motion {
     Idle,
@@ -57,7 +60,7 @@ impl AgvSimulator {
     }
 
     /// Advance the simulation by `dt` seconds and return the current VDA5050 state.
-    pub fn tick(&mut self, dt: f64, map: &NodeMap) -> AgvState {
+    pub fn tick(&mut self, dt: f64, map: &NodeMap) -> State {
         self.header_id += 1;
 
         match &mut self.motion {
@@ -115,7 +118,7 @@ impl AgvSimulator {
         self.build_state(map)
     }
 
-    fn build_state(&self, map: &NodeMap) -> AgvState {
+    fn build_state(&self, map: &NodeMap) -> State {
         let (x, y, theta) = self.last_pose;
         let driving = matches!(self.motion, Motion::Moving { .. });
 
@@ -141,27 +144,24 @@ impl AgvSimulator {
             _ => (None, vec![], None),
         };
 
-        // Next few nodes in route for nodeStates
+        // Report the current node in nodeStates.
         let node_states = vec![NodeState {
             node_id: self.current_node.clone(),
             sequence_id: 0,
             released: true,
-            node_position: map.nodes.get(&self.current_node).map(|n| AgvPosition {
+            node_position: map.nodes.get(&self.current_node).map(|n| NodePosition {
                 x: n.x,
                 y: n.y,
-                theta: 0.0,
-                map_id: "sim-map".to_string(),
-                position_initialized: true,
-                localization_score: Some(1.0),
-                deviation_range: None,
+                theta: Some(0.0),
+                map_id: MAP_ID.to_string(),
             }),
-            node_description: None,
+            node_descriptor: None,
         }];
 
-        AgvState {
-            header_id: self.header_id,
+        State {
+            header_id: self.header_id as i64,
             timestamp: chrono::Utc::now().to_rfc3339(),
-            version: "2.0.0".to_string(),
+            version: "2.1.0".to_string(),
             manufacturer: "Rustrack-Sim".to_string(),
             serial_number: self.serial.clone(),
             order_id: self.order_id.clone(),
@@ -172,42 +172,44 @@ impl AgvSimulator {
             paused: Some(false),
             new_base_request: Some(false),
             distance_since_last_node,
-            agv_position: Some(AgvPosition {
+            mobile_robot_position: Some(MobileRobotPosition {
                 x,
                 y,
                 theta,
-                map_id: "sim-map".to_string(),
-                position_initialized: true,
+                map_id: MAP_ID.to_string(),
+                localized: true,
                 localization_score: Some(1.0),
                 deviation_range: None,
             }),
             velocity,
             node_states,
             edge_states,
-            battery_state: BatteryState {
-                battery_charge: self.battery_pct,
+            power_supply: PowerSupply {
+                state_of_charge: self.battery_pct,
                 charging: false,
                 battery_voltage: None,
                 battery_health: Some(100.0),
-                reach: None,
+                battery_current: None,
+                range: None,
             },
             errors: self.maybe_error(),
-            safety_state: Some(SafetyState {
-                e_stop: "NONE".to_string(),
+            safety_state: SafetyState {
+                active_emergency_stop: ActiveEmergencyStop::None,
                 field_violation: false,
-            }),
-            operating_mode: "AUTOMATIC".to_string(),
+            },
+            operating_mode: OperatingMode::Automatic,
+            ..State::default()
         }
     }
 
     fn build_edge_state(&self, edge_id: &str, edge: &Edge) -> EdgeState {
         let trajectory = edge.curve.as_ref().map(|nurbs| Trajectory {
-            degree: nurbs.degree as u32,
-            knot_vector: nurbs.knots.clone(),
+            degree: Some(nurbs.degree as i64),
+            knot_vector: Some(nurbs.knots.clone()),
             control_points: nurbs
                 .control_points
                 .iter()
-                .map(|cp| VdaControlPoint {
+                .map(|cp| ControlPoint {
                     x: cp.x,
                     y: cp.y,
                     weight: Some(cp.weight),
@@ -220,20 +222,23 @@ impl AgvSimulator {
             sequence_id: 1,
             released: true,
             trajectory,
-            edge_description: None,
+            edge_descriptor: None,
         }
     }
 
-    fn maybe_error(&self) -> Vec<AgvError> {
+    fn maybe_error(&self) -> Vec<Error> {
         if self.battery_pct < 20.0 {
-            vec![AgvError {
+            vec![Error {
                 error_type: "batteryLow".to_string(),
                 error_level: ErrorLevel::Warning,
                 error_description: Some(format!("Battery at {:.1}%", self.battery_pct)),
-                error_references: vec![],
+                error_description_translations: None,
+                error_hint: None,
+                error_hint_translations: None,
+                error_references: None,
             }]
         } else {
-            vec![]
+            Vec::new()
         }
     }
 }

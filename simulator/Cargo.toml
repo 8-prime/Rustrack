@@ -5,16 +5,16 @@ edition = "2024"
 
 
 [dependencies]
-rustrack-shared = { path = "../shared" }
-rumqttc = "0.24"
+rustrack_shared = { path = "../shared", package = "shared" }
+rumqttc = "0.25.1"
 rumqttd = "0.19"
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = "0.8"
 clap = { version = "4", features = ["derive"] }
-anyhow = { workspace = true }
-tracing = { workspace = true }
+anyhow = "1.0.103"
+tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.8"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4.45", features = ["serde"] }

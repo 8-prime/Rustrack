@@ -3,6 +3,7 @@ mod broker;
 mod config;
 mod fleet;
 mod map;
+mod nurbs;
 mod publisher;
 mod scenario;
 
@@ -31,7 +32,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "rustrack_simulator=debug".into()),
+                .unwrap_or_else(|_| "simulator=debug".into()),
         )
         .init();
 

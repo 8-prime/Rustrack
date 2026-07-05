@@ -1,4 +1,4 @@
-use rustrack_shared::vda5050::v2_0::state::AgvState;
+use rustrack_shared::vda5050::state::State;
 
 use crate::{agv::AgvSimulator, map::NodeMap};
 
@@ -12,7 +12,7 @@ impl FleetController {
     }
 
     /// Advance all AGVs by `dt` seconds. Returns (serial, state) pairs.
-    pub fn tick(&mut self, dt: f64, map: &NodeMap) -> Vec<(String, AgvState)> {
+    pub fn tick(&mut self, dt: f64, map: &NodeMap) -> Vec<(String, State)> {
         self.agvs
             .iter_mut()
             .map(|agv| {

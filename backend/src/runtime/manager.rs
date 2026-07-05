@@ -31,7 +31,11 @@ pub struct SystemInfo {
 }
 
 impl Runtime {
-    pub async fn start(&self) {}
+    pub async fn start(&mut self) -> anyhow::Result<()> {
+        self.mqtt_receiver.start().await?;
+        self.publisher.start()?;
+        Ok(())
+    }
     pub async fn stop(&self) {}
 }
 

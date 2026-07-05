@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
-use rustrack_shared::math::nurbs::{ControlPoint, NurbsCurve};
-
 use crate::config::{MapConfig, NodeDef};
+use crate::nurbs::{open_uniform_knots, ControlPoint, NurbsCurve};
 
 #[derive(Debug, Clone)]
 pub struct Node {
@@ -72,7 +71,7 @@ impl NodeMap {
                     .collect();
                 let n = control_points.len();
                 let degree = (n - 1).min(3);
-                let knots = rustrack_shared::math::nurbs::open_uniform_knots(n, degree);
+                let knots = open_uniform_knots(n, degree);
                 let nurbs = NurbsCurve {
                     degree,
                     knots,

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use rumqttc::{AsyncClient, EventLoop, MqttOptions, QoS};
-use rustrack_shared::vda5050::v2_0::state::AgvState;
+use rustrack_shared::vda5050::state::State;
 
 pub struct Publisher {
     client: AsyncClient,
@@ -22,7 +22,7 @@ impl Publisher {
         ))
     }
 
-    pub async fn publish_state(&self, serial: &str, state: &AgvState) -> Result<()> {
+    pub async fn publish_state(&self, serial: &str, state: &State) -> Result<()> {
         let topic = format!("{}/v2/robot/{serial}/state", self.topic_prefix);
         let payload = serde_json::to_vec(state)?;
         self.client
