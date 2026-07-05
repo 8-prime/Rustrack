@@ -3,4 +3,18 @@ name = "simulator"
 version = "0.1.0"
 edition = "2024"
 
+
 [dependencies]
+rustrack-shared = { path = "../shared" }
+rumqttc = "0.24"
+rumqttd = "0.19"
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
