@@ -68,8 +68,7 @@ impl MqttReceiver {
             opts.set_transport(Transport::tls_with_config(config.into()));
         }
 
-        let (client, mut eventloop): (AsyncClient, rumqttc::EventLoop) =
-            AsyncClient::new(opts, 128);
+        let (client, eventloop): (AsyncClient, rumqttc::EventLoop) = AsyncClient::new(opts, 128);
 
         let filters = vec![
             SubscribeFilter::new(format!("{}/+/state", self.topic_prefix), QoS::AtMostOnce),
@@ -143,7 +142,11 @@ async fn handle_messag(
     match (serial, kind) {
         (Some(serial), Some("state")) => {
             match serde_json::from_slice::<State>(&publish_message.payload) {
-                Ok(state) => state_manager.update_state(serial.to_string(), state).await?,
+                Ok(state) => {
+                    state_manager
+                        .update_state(serial.to_string(), state)
+                        .await?
+                }
                 Err(e) => todo!(),
             }
         }

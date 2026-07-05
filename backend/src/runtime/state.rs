@@ -8,6 +8,7 @@ use shared::vda5050::{
 use tokio::sync::RwLock;
 
 /// Pose of the robot in world coordinates.
+#[derive(Clone)]
 pub struct Position {
     pub x: f32,
     pub y: f32,
@@ -15,18 +16,21 @@ pub struct Position {
 }
 
 /// Planned path of the robot as a NURBS curve.
+#[derive(Clone)]
 pub struct Trajectory {
     pub control_points: Vec<ControlPoint>,
     pub degree: Option<i64>,
     pub knot_vector: Option<Vec<f64>>,
 }
 
+#[derive(Clone)]
 pub struct ControlPoint {
     pub x: f64,
     pub y: f64,
     pub weight: Option<f64>,
 }
 
+#[derive(Clone)]
 pub struct RobotState {
     /// Last reported pose. `None` while the robot has not reported a position yet.
     pub position: Option<Position>,
@@ -35,6 +39,7 @@ pub struct RobotState {
     pub timestamp: DateTime<Utc>,
 }
 
+#[derive(Clone)]
 pub struct InterpolatedState {
     pub x: f32,
     pub y: f32,
@@ -42,6 +47,7 @@ pub struct InterpolatedState {
     pub timestamp: DateTime<Utc>,
 }
 
+#[derive(Clone)]
 pub struct MobileRobotState {
     pub vda_state: RobotState,
     pub interpolated_state: Option<InterpolatedState>,
@@ -56,6 +62,11 @@ impl StateManager {
         Self {
             states: RwLock::new(HashMap::new()),
         }
+    }
+
+    pub async fn get_snapshot(&self) -> HashMap<String, MobileRobotState> {
+        let states = self.states.read().await;
+        states.clone()
     }
 
     /// Applies a full VDA5050 `state` message. The state topic is the authoritative

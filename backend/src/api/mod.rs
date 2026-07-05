@@ -30,6 +30,7 @@ pub fn new() -> Router {
         .route("/api/systems/{id}", delete(systems::delete_system))
         .route("/api/systems/{id}/start", post(systems::start_system))
         .route("/api/systems/{id}/stop", post(systems::stop_system))
+        .route("/api/systems/{id}/ws", get(ws::handler))
         .with_state(web_app_state);
 
     app
