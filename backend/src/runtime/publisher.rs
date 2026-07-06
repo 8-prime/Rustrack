@@ -39,6 +39,7 @@ impl Publisher {
                 tokio::select! {
                     _ = canellation.cancelled() => break,
                         _ = ticker.tick() => {
+                            state_manager.update_interpolation().await;
                             let snapshot = state_manager.get_snapshot().await;
                             let _ = sender.send(Arc::new(snapshot));
                         }

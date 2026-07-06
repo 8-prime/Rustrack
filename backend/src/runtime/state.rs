@@ -7,6 +7,8 @@ use shared::vda5050::{
 };
 use tokio::sync::RwLock;
 
+use crate::interpolation;
+
 /// Pose of the robot in world coordinates.
 #[derive(Clone)]
 pub struct Position {
@@ -137,6 +139,13 @@ impl StateManager {
         }
 
         Ok(())
+    }
+
+    pub async fn update_interpolation(&self) {
+        let mut states = self.states.write().await;
+        states.values_mut().for_each(|s| {
+            s.interpolated_state = interpolation::engine::interpolate(&s);
+        });
     }
 }
 
