@@ -349,6 +349,8 @@ dependencies = [
  "shared",
  "tokio",
  "tokio-util",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 

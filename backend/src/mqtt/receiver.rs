@@ -8,11 +8,7 @@ use rumqttc::{
         pki_types::{CertificateDer, ServerName, UnixTime},
     },
 };
-use serde_json::ser;
-use shared::vda5050::{
-    state::State,
-    visualization::{self, Visualization},
-};
+use shared::vda5050::{state::State, visualization::Visualization};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -32,8 +28,6 @@ pub struct MqttReceiver {
 }
 
 impl MqttReceiver {
-    // TODO: this only carries connection settings for now; actually
-    // establishing/spawning the MQTT connection is separate follow-up work.
     pub fn new(config: Configuration, state_manager: Arc<StateManager>) -> Self {
         Self {
             system_id: config.id.clone(),
@@ -112,18 +106,18 @@ impl MqttReceiver {
                 event = eventloop.poll() => {
                     match event  {
                         Ok(notification) => {
-                            match notification {
-                                Event::Incoming(Packet::Publish(pub_msg)) => {
-                                    match handle_messag(pub_msg, state_manager.clone()).await {
-                                        Ok(_) => todo!(),
-                                        Err(_) => todo!(),
-                                    }
+                            if let Event::Incoming(Packet::Publish(pub_msg)) = notification {
+                                if let Err(e) = handle_message(pub_msg, state_manager.clone()).await {
+                                    tracing::warn!("failed to handle mqtt message: {e:#}");
                                 }
-                                _ => {}
                             }
-                            //push notification into state manager
                         },
-                        Err(_) => todo!(),
+                        Err(e) => {
+                            // Connection errors are expected (broker down, reconnects).
+                            // Log and let rumqttc's eventloop retry on the next poll.
+                            tracing::warn!("mqtt eventloop error, will retry: {e}");
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        },
                     }
                 }
             }
@@ -131,7 +125,7 @@ impl MqttReceiver {
     }
 }
 
-async fn handle_messag(
+async fn handle_message(
     publish_message: Publish,
     state_manager: Arc<StateManager>,
 ) -> anyhow::Result<()> {
@@ -147,7 +141,9 @@ async fn handle_messag(
                         .update_state(serial.to_string(), state)
                         .await?
                 }
-                Err(e) => todo!(),
+                Err(e) => {
+                    tracing::warn!("failed to parse state for '{serial}': {e}");
+                }
             }
         }
         (Some(serial), Some("visualization")) => {
@@ -157,10 +153,14 @@ async fn handle_messag(
                         .update_visualization(serial.to_string(), visualization)
                         .await?
                 }
-                Err(_) => todo!(),
+                Err(e) => {
+                    tracing::warn!("failed to parse visualization for '{serial}': {e}");
+                }
             }
         }
-        _ => {}
+        _ => {
+            tracing::debug!("ignoring message on topic '{}'", publish_message.topic);
+        }
     }
     Ok(())
 }
