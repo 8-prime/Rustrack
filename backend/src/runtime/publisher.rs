@@ -48,7 +48,16 @@ impl Publisher {
                         _ = ticker.tick() => {
                             state_manager.update_interpolation().await;
                             let snapshot = state_manager.get_snapshot().await;
-                            let _ = sender.send(Arc::new(snapshot));
+                            let robots = snapshot.len();
+                            match sender.send(Arc::new(snapshot)) {
+                                std::result::Result::Ok(subscribers) => tracing::trace!(
+                                    "published snapshot ({robots} robot(s)) to {subscribers} subscriber(s)"
+                                ),
+                                // Err just means no websocket clients are subscribed right now.
+                                std::result::Result::Err(_) => tracing::trace!(
+                                    "published snapshot ({robots} robot(s)), no subscribers"
+                                ),
+                            }
                         }
                 }
             }

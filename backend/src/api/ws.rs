@@ -21,29 +21,51 @@ pub async fn handler(
         let runtimes = app.runtimes_manager.runtimes.read().await;
         match runtimes.get(&id) {
             Some(runtime) => runtime.publisher.subscribe(),
-            None => return (StatusCode::NOT_FOUND, "unknown system").into_response(),
+            None => {
+                tracing::warn!("websocket connect for unknown system '{id}'");
+                return (StatusCode::NOT_FOUND, "unknown system").into_response();
+            }
         }
     };
 
-    ws.on_upgrade(move |socket| stream_states(socket, rx))
+    tracing::debug!("websocket client subscribed to system '{id}'");
+    ws.on_upgrade(move |socket| stream_states(socket, rx, id))
 }
 
-async fn stream_states(mut socket: WebSocket, mut rx: broadcast::Receiver<StateSnapshot>) {
+async fn stream_states(
+    mut socket: WebSocket,
+    mut rx: broadcast::Receiver<StateSnapshot>,
+    id: String,
+) {
     loop {
         tokio::select! {
             recv = rx.recv() => match recv {
                 Ok(snapshot) => {
                     let frame = encode_snapshot(&snapshot);
+                    tracing::trace!(
+                        "sending frame ({} bytes) to '{id}' websocket client",
+                        frame.len()
+                    );
                     if socket.send(Message::Binary(frame)).await.is_err() {
+                        tracing::debug!("websocket client for '{id}' disconnected (send failed)");
                         break; // client's receive half is gone
                     }
                 }
-                Err(RecvError::Lagged(_)) => continue,
-                Err(RecvError::Closed) => break,
+                Err(RecvError::Lagged(skipped)) => {
+                    tracing::debug!("websocket client for '{id}' lagged, skipped {skipped} snapshot(s)");
+                    continue;
+                }
+                Err(RecvError::Closed) => {
+                    tracing::debug!("broadcast channel for '{id}' closed, ending websocket stream");
+                    break;
+                }
             },
 
             client_msg = socket.recv() => match client_msg {
-                Some(Ok(Message::Close(_))) | None => break,
+                Some(Ok(Message::Close(_))) | None => {
+                    tracing::debug!("websocket client for '{id}' closed the connection");
+                    break;
+                }
                 Some(Err(_)) => break,
                 Some(Ok(_)) => {}
             },
@@ -71,6 +93,12 @@ fn encode_snapshot(snapshot: &StateSnapshot) -> Bytes {
             })
         })
         .collect();
+
+    tracing::trace!(
+        "encoded {} of {} robot(s) into frame (robots without a pose are dropped)",
+        records.len(),
+        snapshot.len()
+    );
 
     encode_frame(&records)
 }

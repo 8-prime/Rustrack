@@ -68,6 +68,7 @@ impl StateManager {
 
     pub async fn get_snapshot(&self) -> HashMap<String, MobileRobotState> {
         let states = self.states.read().await;
+        tracing::trace!("snapshot taken for {} robot(s)", states.len());
         states.clone()
     }
 
@@ -84,18 +85,26 @@ impl StateManager {
             timestamp,
         };
 
+        let has_position = robot_state.position.is_some();
+        let has_trajectory = robot_state.trajectory.is_some();
+
         let mut states = self.states.write().await;
         if let Some(existing) = states.get_mut(&id) {
             existing.vda_state = robot_state;
         } else {
             states.insert(
-                id,
+                id.clone(),
                 MobileRobotState {
                     vda_state: robot_state,
                     interpolated_state: None,
                 },
             );
         }
+
+        tracing::debug!(
+            "state update for '{id}' (has_position={has_position}, has_trajectory={has_trajectory}), tracking {} robot(s)",
+            states.len()
+        );
 
         Ok(())
     }
@@ -114,6 +123,9 @@ impl StateManager {
             .planned_path
             .map(|path| Trajectory::from(path.trajectory));
 
+        let has_position = position.is_some();
+        let has_trajectory = trajectory.is_some();
+
         let mut states = self.states.write().await;
         if let Some(existing) = states.get_mut(&id) {
             if position.is_some() {
@@ -126,7 +138,7 @@ impl StateManager {
         } else {
             // First message we ever received for this robot was a visualization.
             states.insert(
-                id,
+                id.clone(),
                 MobileRobotState {
                     vda_state: RobotState {
                         position,
@@ -138,14 +150,27 @@ impl StateManager {
             );
         }
 
+        tracing::debug!(
+            "visualization update for '{id}' (has_position={has_position}, has_trajectory={has_trajectory}), tracking {} robot(s)",
+            states.len()
+        );
+
         Ok(())
     }
 
     pub async fn update_interpolation(&self) {
         let mut states = self.states.write().await;
+        let mut interpolated = 0usize;
         states.values_mut().for_each(|s| {
             s.interpolated_state = interpolation::engine::interpolate(&s);
+            if s.interpolated_state.is_some() {
+                interpolated += 1;
+            }
         });
+        tracing::trace!(
+            "interpolation updated: {interpolated}/{} robot(s) have a pose",
+            states.len()
+        );
     }
 }
 
