@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { systemWsUrl } from "../lib/api";
 import { decodeFrame } from "../lib/protocol";
+import { StatusBadge, ViewToggle, type Status, type View } from "./viewControls";
 
 interface Props {
   systemId: string | null;
+  view: View;
+  onViewChange: (view: View) => void;
 }
-
-type Status = "idle" | "connecting" | "connected" | "closed";
 
 const MAX_LINES = 1000;
 const FLUSH_MS = 250;
@@ -20,7 +21,7 @@ function timestamp(): string {
   return `${hh}:${mm}:${ss}.${ms}`;
 }
 
-export function PositionLog({ systemId }: Props) {
+export function PositionLog({ systemId, view, onViewChange }: Props) {
   const [status, setStatus] = useState<Status>("idle");
   const [robotCount, setRobotCount] = useState(0);
   const [lines, setLines] = useState<string[]>([]);
@@ -100,7 +101,8 @@ export function PositionLog({ systemId }: Props) {
         <span className="font-semibold">Published positions</span>
         <StatusBadge status={status} />
         <span className="text-gray-500">{robotCount} robot(s)</span>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex items-center gap-2">
+          <ViewToggle view={view} onChange={onViewChange} />
           <button
             type="button"
             disabled={!systemId}
@@ -142,19 +144,5 @@ export function PositionLog({ systemId }: Props) {
         ))}
       </div>
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: Status }) {
-  const styles: Record<Status, string> = {
-    idle: "bg-gray-200 text-gray-700",
-    connecting: "bg-amber-100 text-amber-800",
-    connected: "bg-green-100 text-green-800",
-    closed: "bg-red-100 text-red-800",
-  };
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${styles[status]}`}>
-      {status}
-    </span>
   );
 }
