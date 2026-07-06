@@ -74,20 +74,37 @@ impl MqttReceiver {
 
         client.subscribe_many(filters).await?;
 
+        // CancellationToken is one-shot; install a fresh one so a restart after a
+        // previous stop() hands the receive loop a live (uncancelled) token.
+        self.cancel = CancellationToken::new();
+
         self.handle = Some(tokio::spawn(Self::receive_loop(
             client,
             eventloop,
             self.state_manager.clone(),
             self.cancel.clone(),
         )));
+
+        tracing::info!(
+            "mqtt receiver started for '{}' ({}:{})",
+            self.system_id,
+            self.mqtt_url,
+            self.mqtt_port
+        );
+        tracing::debug!(
+            "subscribed to '{prefix}/+/state' and '{prefix}/+/visualization'",
+            prefix = self.topic_prefix
+        );
         Ok(())
     }
 
     pub async fn stop(&mut self) -> anyhow::Result<()> {
+        tracing::info!("stopping mqtt receiver for '{}'", self.system_id);
         self.cancel.cancel();
         if let Some(handle) = self.handle.take() {
             handle.await?;
         }
+        tracing::debug!("mqtt receiver stopped for '{}'", self.system_id);
         return Ok(());
     }
 
@@ -100,6 +117,7 @@ impl MqttReceiver {
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => {
+                    tracing::debug!("mqtt receive loop cancelled, disconnecting");
                     let _ = client.disconnect().await;
                     break;
                 }
@@ -107,6 +125,7 @@ impl MqttReceiver {
                     match event  {
                         Ok(notification) => {
                             if let Event::Incoming(Packet::Publish(pub_msg)) = notification {
+                                tracing::debug!("received message on '{}'", pub_msg.topic);
                                 if let Err(e) = handle_message(pub_msg, state_manager.clone()).await {
                                     tracing::warn!("failed to handle mqtt message: {e:#}");
                                 }

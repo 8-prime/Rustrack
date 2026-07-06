@@ -27,6 +27,10 @@ impl Publisher {
     }
 
     pub fn start(&mut self) -> anyhow::Result<()> {
+        // CancellationToken is one-shot; install a fresh one so a restart after a
+        // previous stop() hands the spawned task a live (uncancelled) token.
+        self.cancellation = CancellationToken::new();
+
         let sender = self.sender.clone();
         let state_manager = self.statemanager.clone();
         let canellation = self.cancellation.clone();
@@ -37,7 +41,10 @@ impl Publisher {
 
             loop {
                 tokio::select! {
-                    _ = canellation.cancelled() => break,
+                    _ = canellation.cancelled() => {
+                        tracing::debug!("publisher loop cancelled");
+                        break;
+                    }
                         _ = ticker.tick() => {
                             state_manager.update_interpolation().await;
                             let snapshot = state_manager.get_snapshot().await;
@@ -49,14 +56,18 @@ impl Publisher {
 
         self.handle = Some(handle);
 
+        tracing::info!("publisher started (50ms tick)");
+
         Ok(())
     }
 
     pub async fn stop(&mut self) -> anyhow::Result<()> {
+        tracing::info!("stopping publisher");
         self.cancellation.cancel();
         if let Some(handle) = self.handle.take() {
             handle.await?;
         }
+        tracing::debug!("publisher stopped");
         Ok(())
     }
 

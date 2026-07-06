@@ -33,21 +33,27 @@ pub struct SystemInfo {
 impl Runtime {
     pub async fn start(&mut self) -> anyhow::Result<()> {
         if matches!(self.state, RuntimeState::Running) {
+            tracing::debug!("runtime '{}' already running, ignoring start", self.runtime_id);
             return Ok(());
         }
+        tracing::info!("starting runtime '{}'", self.runtime_id);
         self.mqtt_receiver.start().await?;
         self.publisher.start()?;
         self.state = RuntimeState::Running;
+        tracing::info!("runtime '{}' started", self.runtime_id);
         Ok(())
     }
 
     pub async fn stop(&mut self) -> anyhow::Result<()> {
         if matches!(self.state, RuntimeState::Stopped) {
+            tracing::debug!("runtime '{}' already stopped, ignoring stop", self.runtime_id);
             return Ok(());
         }
+        tracing::info!("stopping runtime '{}'", self.runtime_id);
         self.mqtt_receiver.stop().await?;
         self.publisher.stop().await?;
         self.state = RuntimeState::Stopped;
+        tracing::info!("runtime '{}' stopped", self.runtime_id);
         Ok(())
     }
 }
@@ -100,6 +106,8 @@ impl RuntimesManager {
 
         runtimes.insert(config.id.clone(), runtime);
 
+        tracing::info!("registered runtime '{}'", config.id);
+
         //Todo insert into database
 
         Ok(SystemInfo {
@@ -109,6 +117,7 @@ impl RuntimesManager {
     }
 
     pub async fn remove(&self, id: String) -> Result<()> {
+        tracing::info!("removing runtime '{}'", id);
         let mut runtimes = self.runtimes.write().await;
 
         if let Some(runtime) = runtimes.get_mut(&id) {
@@ -120,9 +129,11 @@ impl RuntimesManager {
     }
 
     pub async fn start(&self, id: String) -> Result<()> {
+        tracing::info!("start requested for runtime '{}'", id);
         let mut runtimes = self.runtimes.write().await;
 
         let Some(runtime) = runtimes.get_mut(&id) else {
+            tracing::warn!("start requested for unknown runtime '{}'", id);
             bail!("runtime '{}' does not exist", id);
         };
         runtime.start().await?;
@@ -131,9 +142,11 @@ impl RuntimesManager {
     }
 
     pub async fn stop(&self, id: String) -> Result<()> {
+        tracing::info!("stop requested for runtime '{}'", id);
         let mut runtimes = self.runtimes.write().await;
 
         let Some(runtime) = runtimes.get_mut(&id) else {
+            tracing::warn!("stop requested for unknown runtime '{}'", id);
             bail!("runtime '{}' does not exist", id);
         };
         runtime.stop().await?;
