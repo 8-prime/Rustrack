@@ -128,16 +128,23 @@ impl AgvSimulator {
                 progress_m,
             } => {
                 let edge = &map.edges[edge_id.as_str()];
-                let vx = self.speed_m_s.min(edge.max_speed) * theta.cos();
-                let vy = self.speed_m_s.min(edge.max_speed) * theta.sin();
+                let speed = self.speed_m_s.min(edge.max_speed);
+                // VDA5050 velocity is in *vehicle* coordinates: vx is forward, vy
+                // lateral (0 for a non-holonomic AGV), and omega is the yaw rate.
+                // Derive omega from how fast the heading turns along the path:
+                // omega = dtheta/ds * ds/dt = dtheta/ds * speed.
+                let eps = 0.05_f64.min(edge.length).max(1e-6);
+                let h0 = map.heading_on_edge(edge, *progress_m);
+                let h1 = map.heading_on_edge(edge, (*progress_m + eps).min(edge.length));
+                let omega = wrap_angle(h1 - h0) / eps * speed;
                 let es = self.build_edge_state(edge_id, edge);
                 (
                     Some(*progress_m),
                     vec![es],
                     Some(Velocity {
-                        vx: Some(vx),
-                        vy: Some(vy),
-                        omega: None,
+                        vx: Some(speed),
+                        vy: Some(0.0),
+                        omega: Some(omega),
                     }),
                 )
             }
@@ -243,4 +250,17 @@ impl AgvSimulator {
             Vec::new()
         }
     }
+}
+
+/// Wrap an angle difference into `[-pi, pi]` so a heading that crosses the
+/// `+pi/-pi` seam doesn't produce a spurious near-`2pi` yaw rate.
+fn wrap_angle(a: f64) -> f64 {
+    use std::f64::consts::PI;
+    let mut a = a % (2.0 * PI);
+    if a > PI {
+        a -= 2.0 * PI;
+    } else if a < -PI {
+        a += 2.0 * PI;
+    }
+    a
 }

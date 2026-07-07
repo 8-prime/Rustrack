@@ -17,6 +17,22 @@ pub struct Position {
     pub theta: f32,
 }
 
+/// Robot velocity in *vehicle* coordinates (VDA5050 convention): `vx` is
+/// forward, `vy` lateral, `omega` the yaw rate. Missing sub-fields default to 0.
+#[derive(Clone, Copy)]
+pub struct Velocity {
+    pub vx: f64,
+    pub vy: f64,
+    pub omega: f64,
+}
+
+impl Velocity {
+    /// Ground speed (magnitude of the translational velocity).
+    pub fn speed(&self) -> f64 {
+        self.vx.hypot(self.vy)
+    }
+}
+
 /// Planned path of the robot as a NURBS curve.
 #[derive(Clone)]
 pub struct Trajectory {
@@ -36,8 +52,13 @@ pub struct ControlPoint {
 pub struct RobotState {
     /// Last reported pose. `None` while the robot has not reported a position yet.
     pub position: Option<Position>,
+    /// Last reported velocity, used to extrapolate the pose between updates.
+    pub velocity: Option<Velocity>,
     /// Last reported planned path, if the robot is currently executing an order.
     pub trajectory: Option<Trajectory>,
+    /// Distance driven along the current edge since `lastNodeId`, in meters. This
+    /// is the robot's arc-length position along `trajectory`.
+    pub distance_since_last_node: Option<f64>,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -79,6 +100,8 @@ impl StateManager {
 
         let robot_state = RobotState {
             position: state.agv_position.map(Position::from),
+            velocity: state.velocity.map(Velocity::from),
+            distance_since_last_node: state.distance_since_last_node,
             // v2 has no planned path; the trajectory lives per-edge. Use the first released
             // edge that carries one.
             trajectory: state
@@ -131,14 +154,20 @@ impl StateManager {
             .map(|t| t.with_timezone(&Utc))
             .unwrap_or_else(Utc::now);
         let position = visualization.agv_position.map(Position::from);
+        let velocity = visualization.velocity.map(Velocity::from);
 
         let has_position = position.is_some();
 
         let mut states = self.states.write().await;
         if let Some(existing) = states.get_mut(&id) {
-            // v2 visualization carries no trajectory; only refresh the position.
+            // v2 visualization carries neither trajectory nor arc-length; only
+            // refresh the pose/velocity. Without a fresh distanceSinceLastNode to
+            // pair with this position, clear it so interpolation dead-reckons from
+            // the fresh pose instead of a now-stale point on the path.
             if position.is_some() {
                 existing.vda_state.position = position;
+                existing.vda_state.velocity = velocity;
+                existing.vda_state.distance_since_last_node = None;
                 existing.vda_state.timestamp = timestamp;
             }
         } else {
@@ -148,6 +177,8 @@ impl StateManager {
                 MobileRobotState {
                     vda_state: RobotState {
                         position,
+                        velocity,
+                        distance_since_last_node: None,
                         trajectory: None,
                         timestamp,
                     },
@@ -196,6 +227,26 @@ impl From<visualization::AgvPosition> for Position {
             x: p.x as f32,
             y: p.y as f32,
             theta: p.theta as f32,
+        }
+    }
+}
+
+impl From<state::Velocity> for Velocity {
+    fn from(v: state::Velocity) -> Self {
+        Self {
+            vx: v.vx.unwrap_or(0.0),
+            vy: v.vy.unwrap_or(0.0),
+            omega: v.omega.unwrap_or(0.0),
+        }
+    }
+}
+
+impl From<visualization::Velocity> for Velocity {
+    fn from(v: visualization::Velocity) -> Self {
+        Self {
+            vx: v.vx.unwrap_or(0.0),
+            vy: v.vy.unwrap_or(0.0),
+            omega: v.omega.unwrap_or(0.0),
         }
     }
 }
