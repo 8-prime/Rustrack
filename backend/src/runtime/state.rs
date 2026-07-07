@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use shared::vda5050::{
@@ -48,11 +49,31 @@ pub struct ControlPoint {
     pub weight: Option<f64>,
 }
 
+/// A single reported pose, tagged with when the backend received it. Interpolation
+/// paces itself by `received_at` (a monotonic backend clock) rather than the
+/// robot's own `timestamp`, so clock skew between robot and backend can't distort
+/// playback.
+#[derive(Clone)]
+pub struct PoseSample {
+    pub position: Position,
+    /// Arc-length along the current edge (`distanceSinceLastNode`), if reported.
+    pub distance_since_last_node: Option<f64>,
+    pub received_at: Instant,
+}
+
 #[derive(Clone)]
 pub struct RobotState {
     /// Last reported pose. `None` while the robot has not reported a position yet.
     pub position: Option<Position>,
-    /// Last reported velocity, used to extrapolate the pose between updates.
+    /// The pose sample immediately before the current one. Interpolation runs
+    /// *between* `previous` and the current pose (render-delayed interpolation)
+    /// instead of extrapolating past the newest sample, which is what caused the
+    /// "run ahead, halt, then jolt" motion.
+    pub previous: Option<PoseSample>,
+    /// Backend monotonic clock when the current pose was ingested.
+    pub received_at: Instant,
+    /// Last reported velocity. Used only to dead-reckon before a second sample
+    /// exists to interpolate against.
     pub velocity: Option<Velocity>,
     /// Last reported planned path, if the robot is currently executing an order.
     pub trajectory: Option<Trajectory>,
@@ -74,6 +95,37 @@ pub struct InterpolatedState {
 pub struct MobileRobotState {
     pub vda_state: RobotState,
     pub interpolated_state: Option<InterpolatedState>,
+}
+
+impl RobotState {
+    /// Install a freshly reported pose, shifting the outgoing pose into
+    /// `previous` so interpolation always has two real samples to work between.
+    /// Only shifts when both the old and new poses exist.
+    fn record_pose(
+        &mut self,
+        position: Option<Position>,
+        distance: Option<f64>,
+        timestamp: DateTime<Utc>,
+    ) {
+        match position {
+            Some(new_pos) => {
+                if let Some(old_pos) = self.position.take() {
+                    self.previous = Some(PoseSample {
+                        position: old_pos,
+                        distance_since_last_node: self.distance_since_last_node,
+                        received_at: self.received_at,
+                    });
+                }
+                self.position = Some(new_pos);
+                self.distance_since_last_node = distance;
+                self.received_at = Instant::now();
+                self.timestamp = timestamp;
+            }
+            // No fresh position: keep the last known pose but drop the stale
+            // history so we never interpolate across an unknown gap.
+            None => self.previous = None,
+        }
+    }
 }
 
 pub struct StateManager {
@@ -98,32 +150,40 @@ impl StateManager {
     pub async fn update_state(&self, id: String, state: State) -> anyhow::Result<()> {
         let timestamp = DateTime::parse_from_rfc3339(&state.timestamp)?.with_timezone(&Utc);
 
-        let robot_state = RobotState {
-            position: state.agv_position.map(Position::from),
-            velocity: state.velocity.map(Velocity::from),
-            distance_since_last_node: state.distance_since_last_node,
-            // v2 has no planned path; the trajectory lives per-edge. Use the first released
-            // edge that carries one.
-            trajectory: state
-                .edge_states
-                .into_iter()
-                .filter(|e| e.released)
-                .find_map(|e| e.trajectory)
-                .map(Trajectory::from),
-            timestamp,
-        };
+        let position = state.agv_position.map(Position::from);
+        let velocity = state.velocity.map(Velocity::from);
+        let distance = state.distance_since_last_node;
+        // v2 has no planned path; the trajectory lives per-edge. Use the first released
+        // edge that carries one.
+        let trajectory = state
+            .edge_states
+            .into_iter()
+            .filter(|e| e.released)
+            .find_map(|e| e.trajectory)
+            .map(Trajectory::from);
 
-        let has_position = robot_state.position.is_some();
-        let has_trajectory = robot_state.trajectory.is_some();
+        let has_position = position.is_some();
+        let has_trajectory = trajectory.is_some();
 
         let mut states = self.states.write().await;
         if let Some(existing) = states.get_mut(&id) {
-            existing.vda_state = robot_state;
+            let vs = &mut existing.vda_state;
+            vs.record_pose(position, distance, timestamp);
+            vs.velocity = velocity;
+            vs.trajectory = trajectory;
         } else {
             states.insert(
                 id.clone(),
                 MobileRobotState {
-                    vda_state: robot_state,
+                    vda_state: RobotState {
+                        position,
+                        previous: None,
+                        received_at: Instant::now(),
+                        velocity,
+                        trajectory,
+                        distance_since_last_node: distance,
+                        timestamp,
+                    },
                     interpolated_state: None,
                 },
             );
@@ -161,14 +221,13 @@ impl StateManager {
         let mut states = self.states.write().await;
         if let Some(existing) = states.get_mut(&id) {
             // v2 visualization carries neither trajectory nor arc-length; only
-            // refresh the pose/velocity. Without a fresh distanceSinceLastNode to
-            // pair with this position, clear it so interpolation dead-reckons from
-            // the fresh pose instead of a now-stale point on the path.
+            // refresh the pose/velocity. Pass `None` for the arc-length so
+            // interpolation falls back to linear between poses rather than pairing
+            // this fresh position with a now-stale point on the path.
             if position.is_some() {
-                existing.vda_state.position = position;
-                existing.vda_state.velocity = velocity;
-                existing.vda_state.distance_since_last_node = None;
-                existing.vda_state.timestamp = timestamp;
+                let vs = &mut existing.vda_state;
+                vs.record_pose(position, None, timestamp);
+                vs.velocity = velocity;
             }
         } else {
             // First message we ever received for this robot was a visualization.
@@ -177,9 +236,11 @@ impl StateManager {
                 MobileRobotState {
                     vda_state: RobotState {
                         position,
+                        previous: None,
+                        received_at: Instant::now(),
                         velocity,
-                        distance_since_last_node: None,
                         trajectory: None,
+                        distance_since_last_node: None,
                         timestamp,
                     },
                     interpolated_state: None,

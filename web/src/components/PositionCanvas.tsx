@@ -16,9 +16,31 @@ interface Bounds {
   maxY: number;
 }
 
+// One decoded frame plus the client-clock time it arrived, so we can interpolate
+// between consecutive frames instead of snapping to the newest one.
+interface Frame {
+  records: AgvRecord[];
+  byId: Map<string, AgvRecord>;
+  time: number;
+}
+
 const DOT_RADIUS = 6;
 const HEADING_LEN = 18;
 const PADDING_FRAC = 0.1;
+
+// Bounds on the self-tuned render interval (ms): guards a divide-by-~zero when
+// two frames arrive together and caps how far playback stretches after a stall.
+const MIN_INTERVAL_MS = 1;
+const MAX_INTERVAL_MS = 2000;
+
+// Interpolate an angle along its shortest arc, handling the +pi/-pi seam.
+function angleLerp(a: number, b: number, f: number): number {
+  const twoPi = Math.PI * 2;
+  let d = (b - a) % twoPi;
+  if (d > Math.PI) d -= twoPi;
+  else if (d < -Math.PI) d += twoPi;
+  return a + d * f;
+}
 
 // Deterministic HSL color from a serial, so each robot keeps a stable hue.
 function colorFor(serial: string): string {
@@ -35,7 +57,8 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
   const [robotCount, setRobotCount] = useState(0);
   const [paused, setPaused] = useState(false);
 
-  const latest = useRef<AgvRecord[]>([]);
+  const curFrame = useRef<Frame | null>(null);
+  const prevFrame = useRef<Frame | null>(null);
   const bounds = useRef<Bounds | null>(null);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
@@ -45,7 +68,8 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
 
   // Connect / reconnect when the selected system changes.
   useEffect(() => {
-    latest.current = [];
+    curFrame.current = null;
+    prevFrame.current = null;
     bounds.current = null;
     setRobotCount(0);
 
@@ -66,7 +90,16 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
       const records = decodeFrame(ev.data);
       setRobotCount(records.length);
       if (pausedRef.current) return;
-      latest.current = records;
+
+      // Shift the newest frame into `cur` and the outgoing one into `prev`, each
+      // tagged with its arrival time so the render loop can interpolate between
+      // them. `byId` is prebuilt here so the per-RAF lookup stays cheap.
+      prevFrame.current = curFrame.current;
+      curFrame.current = {
+        records,
+        byId: new Map(records.map((r) => [r.serial, r])),
+        time: performance.now(),
+      };
 
       // Grow persistent bounds so the view never rescales away from a robot.
       for (const r of records) {
@@ -124,10 +157,23 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const records = latest.current;
+      const cur = curFrame.current;
       const b = bounds.current;
 
-      if (records.length > 0 && b) {
+      if (cur && cur.records.length > 0 && b) {
+        // Render one interval behind real time and interpolate `prev -> cur`.
+        // `now == cur.time` (a frame just arrived) gives f=0; a full interval
+        // later gives f=1; beyond that it holds at `cur` until the next frame.
+        const prev = prevFrame.current;
+        let f = 1;
+        if (prev) {
+          const interval = Math.min(
+            Math.max(cur.time - prev.time, MIN_INTERVAL_MS),
+            MAX_INTERVAL_MS,
+          );
+          f = Math.min(Math.max((performance.now() - cur.time) / interval, 0), 1);
+        }
+
         // Fit world bounds into the canvas, preserving aspect ratio, with padding.
         const spanX = Math.max(b.maxX - b.minX, 1e-3);
         const spanY = Math.max(b.maxY - b.minY, 1e-3);
@@ -144,9 +190,17 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
           h / 2 - (y - cy) * scale,
         ];
 
-        for (const r of records) {
+        for (const r of cur.records) {
           if (!Number.isFinite(r.x) || !Number.isFinite(r.y)) continue;
-          const [sx, sy] = toScreen(r.x, r.y);
+
+          // Blend from the robot's previous pose toward this one. Robots absent
+          // from the previous frame (just appeared) render at their current pose.
+          const p = prev?.byId.get(r.serial);
+          const x = p ? p.x + (r.x - p.x) * f : r.x;
+          const y = p ? p.y + (r.y - p.y) * f : r.y;
+          const theta = p ? angleLerp(p.theta, r.theta, f) : r.theta;
+
+          const [sx, sy] = toScreen(x, y);
           const color = colorFor(r.serial);
 
           // Heading tick (dy negated because screen Y is flipped).
@@ -155,8 +209,8 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
           ctx.beginPath();
           ctx.moveTo(sx, sy);
           ctx.lineTo(
-            sx + Math.cos(r.theta) * HEADING_LEN,
-            sy - Math.sin(r.theta) * HEADING_LEN,
+            sx + Math.cos(theta) * HEADING_LEN,
+            sy - Math.sin(theta) * HEADING_LEN,
           );
           ctx.stroke();
 
