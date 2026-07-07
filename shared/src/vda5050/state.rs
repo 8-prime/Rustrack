@@ -1,125 +1,110 @@
 use serde::{Deserialize, Serialize};
 
-/// State of the mobile robot.
-#[derive(Serialize, Deserialize, Default)]
+/// all encompassing state of the AGV.
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct State {
-    /// Array of the current actions and the actions which are yet to be finished. This may
-    /// include actions from previous nodes that are still in progress
+    /// Contains a list of the current actions and the actions which are yet to be finished. This
+    /// may include actions from previous nodes that are still in progress
     /// When an action is completed, an updated state message is published with actionStatus set
-    /// to finished and if applicable with the corresponding resultDescriptor. The actionStates
+    /// to finished and if applicable with the corresponding resultDescription. The actionStates
     /// are kept until a new order is received.
     pub action_states: Vec<ActionState>,
+    /// Defines the position on a map in world coordinates. Each floor has its own map.
+    pub agv_position: Option<AgvPosition>,
+    /// Contains all battery-related information.
+    pub battery_state: BatteryState,
     /// Used by line guided vehicles to indicate the distance it has been driving past the
-    /// lastNodeId. Distance is in meters.
+    /// "lastNodeId".
+    /// Distance is in meters.
     pub distance_since_last_node: Option<f64>,
-    /// True: indicates that the mobile robot is driving and/or rotating. Other movements of the
-    /// mobile robot (e.g., lift movements) are not included here.
-    /// False: indicates that the mobile robot is neither driving nor rotating.
+    /// True: indicates that the AGV is driving and/or rotating. Other movements of the AGV
+    /// (e.g., lift movements) are not included here.
+    /// False: indicates that the AGV is neither driving nor rotating
     pub driving: bool,
-    /// Array of edgeRequest objects that are currently active on the mobile robot. Empty array
-    /// if no edge requests are active.
-    pub edge_requests: Option<Vec<EdgeRequest>>,
     /// Array of edgeState-Objects, that need to be traversed for fulfilling the order, empty
     /// list if idle.
     pub edge_states: Vec<EdgeState>,
-    /// Array of error-objects. All active errors of the mobile robot should be in the list. An
-    /// empty array indicates that the mobile robot has no active errors.
+    /// Array of error-objects. All active errors of the AGV should be in the list. An empty
+    /// array indicates that the AGV has no active errors.
     pub errors: Vec<Error>,
     /// headerId of the message. The headerId is defined per topic and incremented by 1 with each
     /// sent (but not necessarily received) message.
     pub header_id: i64,
-    /// Array of info-objects. An empty array indicates, that the mobile robot has no
-    /// information. This should only be used for visualization or debugging – it must not be
-    /// used for logic in fleet control.
-    pub information: Option<Vec<Info>>,
-    /// Array of all instant action states that the mobile robot received. Empty array if the
-    /// mobile robot has not received any instant actions. Instant actions are kept in the state
-    /// until restart or action clearInstantActions is executed.
-    pub instant_action_states: Vec<ActionState>,
-    pub intermediate_path: Option<IntermediatePath>,
-    /// Node ID of last reached node or, if mobile robot is currently on a node, current node
-    /// (e.g., "node7"). Empty string ("") if no lastNodeId is available.
+    /// Array of info-objects. An empty array indicates, that the AGV has no information. This
+    /// should only be used for visualization or debugging – it must not be used for logic in
+    /// master control.
+    pub information: Option<Vec<Information>>,
+    /// nodeID of last reached node or, if AGV is currently on a node, current node (e.g.,
+    /// "node7"). Empty string ("") if no lastNodeId is available.
     pub last_node_id: String,
-    /// sequenceId of the last reached node or, if the mobile robot is currently on a node,
-    /// sequenceId of current node. 0 if no lastNodeSequenceId is available.
+    /// sequenceId of the last reached node or, if the AGV is currently on a node, sequenceId of
+    /// current node. "0" if no lastNodeSequenceId is available.
     pub last_node_sequence_id: i64,
-    /// Loads, that are currently handled by the mobile robot. Optional: If mobile robot cannot
-    /// determine load state, leave the array out of the state. If the mobile robot can determine
-    /// the load state, but the array is empty, the mobile robot is considered unloaded.
+    /// Loads, that are currently handled by the AGV. Optional: If AGV cannot determine load
+    /// state, leave the array out of the state. If the AGV can determine the load state, but the
+    /// array is empty, the AGV is considered unloaded.
     pub loads: Option<Vec<Load>>,
-    /// Manufacturer of the mobile robot
+    /// Manufacturer of the AGV
     pub manufacturer: String,
-    /// Array of map-objects that are currently stored on the mobile robot.
+    /// Array of map-objects that are currently stored on the vehicle.
     pub maps: Option<Vec<Map>>,
-    pub mobile_robot_position: Option<MobileRobotPosition>,
-    /// True: mobile robot is almost at the end of the base and will reduce speed if no new base
-    /// is transmitted. Trigger for fleet control to send new base
+    /// True: AGV is almost at the end of the base and will reduce speed if no new base is
+    /// transmitted. Trigger for master control to send new base
     /// False: no base update required.
     pub new_base_request: Option<bool>,
     /// Array of nodeState-Objects, that need to be traversed for fulfilling the order. Empty
     /// list if idle.
     pub node_states: Vec<NodeState>,
-    /// Current operating mode of the mobile robot.
+    /// Current operating mode of the AGV.
     pub operating_mode: OperatingMode,
     /// Unique order identification of the current order or the previous finished order. The
     /// orderId is kept until a new order is received. Empty string ("") if no previous orderId
     /// is available.
     pub order_id: String,
     /// Order Update Identification to identify that an order update has been accepted by the
-    /// mobile robot. 0 if no previous orderUpdateId is available.
+    /// AGV. "0" if no previous orderUpdateId is available.
     pub order_update_id: i64,
-    /// True: mobile robot is currently in a paused state, either because of the push of a
-    /// physical button on the mobile robot or because of an instantAction. The mobile robot can
-    /// resume the order.
-    /// False: The mobile robot is currently not in a paused state.
+    /// True: AGV is currently in a paused state, either because of the push of a physical button
+    /// on the AGV or because of an instantAction. The AGV can resume the order.
+    /// False: The AGV is currently not in a paused state.
     pub paused: Option<bool>,
-    pub planned_path: Option<PlannedPath>,
-    pub power_supply: PowerSupply,
+    /// Contains all safety-related information.
     pub safety_state: SafetyState,
-    /// Serial number of the mobile robot.
+    /// Serial number of the AGV.
     pub serial_number: String,
-    /// Timestamp in ISO8601 format (YYYY-MM-DDTHH:mm:ss.fffZ).
+    /// Timestamp in ISO8601 format (YYYY-MM-DDTHH:mm:ss.ffZ).
     pub timestamp: String,
-    /// The mobile robot's velocity in mobile robot coordinates
+    /// The AGVs velocity in vehicle coordinates
     pub velocity: Option<Velocity>,
     /// Version of the protocol [Major].[Minor].[Patch]
     pub version: String,
-    /// Array of all zone actions that are in an end state or are currently running; sharing
-    /// upcoming actions is optional. Zone action states are kept in the state message until
-    /// restart or action clearZoneActions is executed.
-    pub zone_action_states: Option<Vec<ActionState>>,
-    /// Array of zoneRequest objects that are currently active on the mobile robot. Empty array
-    /// if no zone requests are active.
-    pub zone_requests: Option<Vec<ZoneRequest>>,
-    /// Array of zoneSet objects that are currently stored on the mobile robot.
-    pub zone_sets: Option<Vec<ZoneSet>>,
+    /// Unique ID of the zone set that the AGV currently uses for path planning. Must be the same
+    /// as the one used in the order, otherwise the AGV is to reject the order.
+    /// Optional: If the AGV does not use zones, this field can be omitted.
+    pub zone_set_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionState {
-    /// A user-defined, human-readable name or descriptor.
-    pub action_descriptor: Option<String>,
+    /// Additional information on the current action.
+    pub action_description: Option<String>,
     /// Unique actionId
     pub action_id: String,
+    /// WAITING: waiting for the trigger (passing the mode, entering the edge) PAUSED: paused by
+    /// instantAction or external trigger FAILED: action could not be performed.
+    pub action_status: ActionStatus,
+    /// actionType of the action.
+    /// Optional: Only for informational or visualization purposes. Order knows the type.
+    pub action_type: Option<String>,
     /// Description of the result, e.g., the result of a RFID-read. Errors will be transmitted in
     /// errors.
-    pub action_result: Option<String>,
-    /// WAITING: waiting for the trigger (passing the mode, entering the edge); INITIALIZING:
-    /// Action was triggered, preparatory measures are initiated; RUNNING: The action is running;
-    /// RETRIABLE: Actions that failed, but can be retried; PAUSED: paused by instantAction or
-    /// external trigger; FINISHED: The action is finished; FAILED: action could not be performed.
-    pub action_status: ActionStatus,
-    /// actionType of the action. Optional: Only for informational or visualization purposes.
-    /// Order knows the type.
-    pub action_type: Option<String>,
+    pub result_description: Option<String>,
 }
 
-/// WAITING: waiting for the trigger (passing the mode, entering the edge); INITIALIZING:
-/// Action was triggered, preparatory measures are initiated; RUNNING: The action is running;
-/// RETRIABLE: Actions that failed, but can be retried; PAUSED: paused by instantAction or
-/// external trigger; FINISHED: The action is finished; FAILED: action could not be performed.
+/// WAITING: waiting for the trigger (passing the mode, entering the edge) PAUSED: paused by
+/// instantAction or external trigger FAILED: action could not be performed.
 #[derive(Serialize, Deserialize)]
 pub enum ActionStatus {
     #[serde(rename = "FAILED")]
@@ -128,82 +113,77 @@ pub enum ActionStatus {
     Finished,
     #[serde(rename = "INITIALIZING")]
     Initializing,
-    #[serde(rename = "PAUSED")]
-    Paused,
-    #[serde(rename = "RETRIABLE")]
-    Retriable,
     #[serde(rename = "RUNNING")]
     Running,
     #[serde(rename = "WAITING")]
     Waiting,
 }
 
-/// Edge request information sent by the mobile robot to fleet control.
+/// Defines the position on a map in world coordinates. Each floor has its own map.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EdgeRequest {
-    /// Globally unique identifier referencing the edge the request is related to.
-    pub edge_id: String,
-    /// Unique per mobile robot identifier across all active requests.
-    pub request_id: String,
-    /// When stating a request, this is set to REQUESTED. After response or update from fleet
-    /// control set to GRANTED or REVOKED. If lease time expires set to EXPIRED.
-    pub request_status: RequestStatus,
-    /// Enum specifying the type of edge the request relates to.
-    pub request_type: EdgeRequestRequestType,
-    /// Tracking number for sequence of edge within order. Required to uniquely identify the
-    /// referenced edge within the order.
-    pub sequence_id: i64,
+pub struct AgvPosition {
+    /// Value for position deviation range in meters. Optional for vehicles that cannot estimate
+    /// their deviation, e.g., grid-based localization. Only for logging and visualization
+    /// purposes.
+    pub deviation_range: Option<f64>,
+    /// Describes the quality of the localization and therefore, can be used, e.g., by SLAM-AGV
+    /// to describe how accurate the current position information is.
+    /// 0.0: position unknown
+    /// 1.0: position known
+    /// Optional for vehicles that cannot estimate their localization score.
+    /// Only for logging and visualization purposes
+    pub localization_score: Option<f64>,
+    pub map_description: Option<String>,
+    pub map_id: String,
+    /// True: position is initialized. False: position is not initizalized.
+    pub position_initialized: bool,
+    pub theta: f64,
+    pub x: f64,
+    pub y: f64,
 }
 
-/// When stating a request, this is set to REQUESTED. After response or update from fleet
-/// control set to GRANTED or REVOKED. If lease time expires set to EXPIRED.
-///
-/// When stating a request, this is set to REQUESTED. After response or update from fleet
-/// control set to GRANTED or REVOKED. If lease time expires, shall be to EXPIRED.
+/// Contains all battery-related information.
 #[derive(Serialize, Deserialize)]
-pub enum RequestStatus {
-    #[serde(rename = "EXPIRED")]
-    Expired,
-    #[serde(rename = "GRANTED")]
-    Granted,
-    #[serde(rename = "REQUESTED")]
-    Requested,
-    #[serde(rename = "REVOKED")]
-    Revoked,
-}
-
-/// Enum specifying the type of edge the request relates to.
-#[derive(Serialize, Deserialize)]
-pub enum EdgeRequestRequestType {
-    #[serde(rename = "CORRIDOR")]
-    Corridor,
+#[serde(rename_all = "camelCase")]
+pub struct BatteryState {
+    /// State of Charge in %:
+    /// If AGV only provides values for good or bad battery levels, these will be indicated as
+    /// 20% (bad) and 80% (good).
+    pub battery_charge: f64,
+    /// State of health in percent.
+    pub battery_health: Option<f64>,
+    /// Battery voltage
+    pub battery_voltage: Option<f64>,
+    /// True: charging in progress. False: AGV is currently not charging.
+    pub charging: bool,
+    /// Estimated reach with current State of Charge in meter.
+    pub reach: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EdgeState {
-    /// A user-defined, human-readable name or descriptor.
-    pub edge_descriptor: Option<String>,
+    /// Additional information on the edge.
+    pub edge_description: Option<String>,
     /// Unique edge identification
     pub edge_id: String,
     /// True indicates that the edge is part of the base. False indicates that the edge is part
     /// of the horizon.
     pub released: bool,
-    /// Sequence ID to differentiate between multiple edges with the same edgeId
+    /// sequenceId of the edge.
     pub sequence_id: i64,
-    /// Reports the trajectory that has been defined a priori within a layout or was sent for
-    /// this edge as part of the order.
+    /// The trajectory is to be communicated as a NURBS and is defined in chapter 6.7
+    /// Implementation of the Order message.
+    /// Trajectory segments reach from the point, where the AGV starts to enter the edge to the
+    /// point where it reports that the next node was traversed.
     pub trajectory: Option<Trajectory>,
 }
 
-/// Reports the trajectory that has been defined a priori within a layout or was sent for
-/// this edge as part of the order.
-///
 /// The trajectory is to be communicated as a NURBS and is defined in chapter 6.7
-/// Implementation of the Order message. Trajectory segments reach from the point, where the
-/// mobile robot starts to enter the edge to the point where it reports that the next node
-/// was traversed.
+/// Implementation of the Order message.
+/// Trajectory segments reach from the point, where the AGV starts to enter the edge to the
+/// point where it reports that the next node was traversed.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Trajectory {
@@ -211,17 +191,17 @@ pub struct Trajectory {
     /// includes the beginning and end point.
     pub control_points: Vec<ControlPoint>,
     /// Defines the number of control points that influence any given point on the curve.
-    /// Increasing the degree increases differentiability. If not defined, the default value is 1.
-    pub degree: Option<i64>,
+    /// Increasing the degree increases continuity. If not defined, the default value is 1.
+    pub degree: i64,
     /// Sequence of parameter values that determine where and how the control points affect the
-    /// NURBS curve. knotVector has size of number of control points + degree + 1.
-    pub knot_vector: Option<Vec<f64>>,
+    /// NURBS curve. knotVector has size of number of control points + degree + 1
+    pub knot_vector: Vec<f64>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ControlPoint {
-    /// The weight, with which this control point pulls on the curve. When not defined, the
-    /// default will be 1.0.
+    /// The weight, with which this control point pulls on the curve.
+    /// When not defined, the default will be 1.0.
     pub weight: Option<f64>,
     pub x: f64,
     pub y: f64,
@@ -232,46 +212,24 @@ pub struct ControlPoint {
 pub struct Error {
     /// Verbose description providing details and possible causes of the error.
     pub error_description: Option<String>,
-    /// Array of translations of the error description.
-    pub error_description_translations: Option<Vec<Translation>>,
     /// Hint on how to approach or solve the reported error.
     pub error_hint: Option<String>,
-    /// Array of translations of the error hint.
-    pub error_hint_translations: Option<Vec<Translation>>,
-    /// WARNING: No immediate attention required, mobile robot is able to continue active and
-    /// accept new order. URGENT: Immediate attention required, mobile robot is able to continue
-    /// active and accept new order. CRITICAL: Immediate attention required, mobile robot is
-    /// unable to continue active order, but can accept new order. FATAL: User intervention is
-    /// required, mobile robot is unable to continue active or accept new order.
+    /// WARNING: AGV is ready to start (e.g., maintenance cycle expiration warning). FATAL: AGV
+    /// is not in running condition, user intervention required (e.g., laser scanner is
+    /// contaminated).
     pub error_level: ErrorLevel,
     pub error_references: Option<Vec<ErrorReference>>,
-    /// Error type, extensible enumeration including the following predefined values.
+    /// Type/name of error.
     pub error_type: String,
 }
 
-/// Translation of a text for a given language code.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Translation {
-    /// Specifies the language of the translation according to ISO 639-1.
-    pub translation_key: String,
-    /// Translation in language of translation key.
-    pub translation_value: String,
-}
-
-/// WARNING: No immediate attention required, mobile robot is able to continue active and
-/// accept new order. URGENT: Immediate attention required, mobile robot is able to continue
-/// active and accept new order. CRITICAL: Immediate attention required, mobile robot is
-/// unable to continue active order, but can accept new order. FATAL: User intervention is
-/// required, mobile robot is unable to continue active or accept new order.
+/// WARNING: AGV is ready to start (e.g., maintenance cycle expiration warning). FATAL: AGV
+/// is not in running condition, user intervention required (e.g., laser scanner is
+/// contaminated).
 #[derive(Serialize, Deserialize)]
 pub enum ErrorLevel {
-    #[serde(rename = "CRITICAL")]
-    Critical,
     #[serde(rename = "FATAL")]
     Fatal,
-    #[serde(rename = "URGENT")]
-    Urgent,
     #[serde(rename = "WARNING")]
     Warning,
 }
@@ -290,9 +248,9 @@ pub struct ErrorReference {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Info {
-    /// A user-defined, human-readable name or descriptor.
-    pub info_descriptor: Option<String>,
+pub struct Information {
+    /// Info of description.
+    pub info_description: Option<String>,
     /// DEBUG: used for debugging. INFO: used for visualization.
     pub info_level: InfoLevel,
     pub info_references: Option<Vec<InfoReference>>,
@@ -319,45 +277,23 @@ pub struct InfoReference {
     pub reference_value: String,
 }
 
-/// Represents the estimated time of arrival at closer waypoints that the mobile robot is
-/// able to perceive with its sensors.
-#[derive(Serialize, Deserialize)]
-pub struct IntermediatePath {
-    /// Array of end points of segments of a polyline.
-    pub polyline: Vec<Polyline>,
-}
-
-/// Endpoint of a segment within a defined polyline.
-#[derive(Serialize, Deserialize)]
-pub struct Polyline {
-    /// Estimated time of arrival/traversal. Formatted as a timestamp (ISO 8601, UTC);
-    /// YYYY-MM-DDTHH:mm:ss.fffZ (e.g., '2017-04-15T11:40:03.123Z').
-    pub eta: String,
-    /// Absolute orientation of the mobile robot in the project-specific coordinate system.
-    pub theta: Option<f64>,
-    /// X-coordinate described in the project-specific coordinate system.
-    pub x: f64,
-    /// Y-coordinate described in the project-specific coordinate system.
-    pub y: f64,
-}
-
-/// Load object that describes the load if the mobile robot has information about it.
+/// Load object that describes the load if the AGV has information about it.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Load {
     /// Point of reference for the location of the bounding box. The point of reference is always
     /// the center of the bounding box bottom surface (at height = 0) and is described in
-    /// coordinates of the mobile robot coordinate system.
+    /// coordinates of the AGV coordinate system.
     pub bounding_box_reference: Option<BoundingBoxReference>,
     /// Dimensions of the loads bounding box in meters.
     pub load_dimensions: Option<LoadDimensions>,
-    /// Unique identification number of the load (e.g., barcode or RFID). Empty field, if the
-    /// mobile robot can identify the load, but did not identify the load yet. Optional, if the
-    /// mobile robot cannot identify the load.
+    /// Unique identification number of the load (e.g., barcode or RFID). Empty field, if the AGV
+    /// can identify the load, but did not identify the load yet. Optional, if the AGV cannot
+    /// identify the load.
     pub load_id: Option<String>,
-    /// Indicates, which load handling/carrying unit of the mobile robot is used, e.g., in case
-    /// the mobile robot has multiple spots/positions to carry loads. Optional for vehicles with
-    /// only one loadPosition.
+    /// Indicates, which load handling/carrying unit of the AGV is used, e.g., in case the AGV
+    /// has multiple spots/positions to carry loads. Optional for vehicles with only one
+    /// loadPosition.
     pub load_position: Option<String>,
     /// Type of load.
     pub load_type: Option<String>,
@@ -367,7 +303,7 @@ pub struct Load {
 
 /// Point of reference for the location of the bounding box. The point of reference is always
 /// the center of the bounding box bottom surface (at height = 0) and is described in
-/// coordinates of the mobile robot coordinate system.
+/// coordinates of the AGV coordinate system.
 #[derive(Serialize, Deserialize)]
 pub struct BoundingBoxReference {
     /// Orientation of the loads bounding box. Important for tugger, trains, etc.
@@ -382,95 +318,67 @@ pub struct BoundingBoxReference {
 pub struct LoadDimensions {
     /// Absolute height of the loads bounding box in meter.
     /// Optional:
-    /// set value only if known.
+    /// Set value only if known.
     pub height: Option<f64>,
-    /// Absolute length (along the mobile robot’s coordinate system's x-axis) of the load's
-    /// bounding box in meters.
+    /// Absolute length of the loads bounding box in meter.
     pub length: f64,
-    /// Absolute width (along the mobile robot’s coordinate system's y-axis) of the load's
-    /// bounding box in meters.
+    /// Absolute width of the loads bounding box in meter.
     pub width: f64,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Map {
-    /// A user-defined, human-readable name or descriptor
-    pub map_descriptor: Option<String>,
-    /// ID of the map describing a defined area of the mobile robot's workspace.
+    /// Additional information on the map.
+    pub map_description: Option<String>,
+    /// ID of the map describing a defined area of the vehicle's workspace.
     pub map_id: String,
     /// Information on the status of the map indicating, if a map version is currently used on
-    /// the mobile robot. ENABLED: Indicates this map is currently active / used on the mobile
-    /// robot. At most one map with the same mapId can have its status set to
-    /// ENABLED.<br>DISABLED: Indicates this map version is currently not enabled on the mobile
-    /// robot and thus could be enabled or deleted by request.
-    pub map_status: Status,
+    /// the vehicle. ENABLED: Indicates this map is currently active / used on the AGV. At most
+    /// one map with the same mapId can have its status set to ENABLED.<br>DISABLED: Indicates
+    /// this map version is currently not enabled on the AGV and thus could be enabled or deleted
+    /// by request.
+    pub map_status: MapStatus,
     /// Version of the map.
     pub map_version: String,
 }
 
 /// Information on the status of the map indicating, if a map version is currently used on
-/// the mobile robot. ENABLED: Indicates this map is currently active / used on the mobile
-/// robot. At most one map with the same mapId can have its status set to
-/// ENABLED.<br>DISABLED: Indicates this map version is currently not enabled on the mobile
-/// robot and thus could be enabled or deleted by request.
-///
-/// ENABLED: Indicates this zone set is currently active / used on the mobile robot. At most
-/// one zone set for each map can have its status set to ENABLED. DISABLED: Indicates this
-/// zone set is currently not enabled on the mobile robot and thus could be enabled or
-/// deleted by fleet control.
+/// the vehicle. ENABLED: Indicates this map is currently active / used on the AGV. At most
+/// one map with the same mapId can have its status set to ENABLED.<br>DISABLED: Indicates
+/// this map version is currently not enabled on the AGV and thus could be enabled or deleted
+/// by request.
 #[derive(Serialize, Deserialize)]
-pub enum Status {
+pub enum MapStatus {
     #[serde(rename = "DISABLED")]
     Disabled,
     #[serde(rename = "ENABLED")]
     Enabled,
 }
 
-/// Defines the position on a map in world coordinates. Each floor has its own map.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MobileRobotPosition {
-    /// Value for position deviation range in meters. Optional for vehicles that cannot estimate
-    /// their deviation, e.g., grid-based localization. Only for logging and visualization
-    /// purposes.
-    pub deviation_range: Option<f64>,
-    /// Describes the quality of the localization and therefore, can be used, e.g., by SLAM
-    /// mobile robot to describe how accurate the current position information is.
-    /// 0.0: position unknown
-    /// 1.0: position known
-    /// Optional for vehicles that cannot estimate their localization score.
-    /// Only for logging and visualization purposes
-    pub localization_score: Option<f64>,
-    /// True: mobile robot is localized. x, y, and theta can be trusted. False: mobile robot is
-    /// not localized. x, y, and theta cannot be trusted.
-    pub localized: bool,
-    /// Unique identification of the map.
-    pub map_id: String,
-    pub theta: f64,
-    pub x: f64,
-    pub y: f64,
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeState {
-    /// A user-defined, human-readable name or descriptor.
-    pub node_descriptor: Option<String>,
+    /// Additional information on the node.
+    pub node_description: Option<String>,
     /// Unique node identification
     pub node_id: String,
-    /// Node position. Optional: Fleet control has this information. Can be sent additionally,
-    /// e.g., for debugging purposes.
+    /// Node position. The object is defined in chapter 5.4 Topic: Order (from master control to
+    /// AGV).
+    /// Optional:Master control has this information. Can be sent additionally, e.g., for
+    /// debugging purposes.
     pub node_position: Option<NodePosition>,
     /// True: indicates that the node is part of the base. False: indicates that the node is part
     /// of the horizon.
     pub released: bool,
-    /// Sequence ID to discern multiple nodes with same nodeId.
+    /// sequenceId to discern multiple nodes with same nodeId.
     pub sequence_id: i64,
 }
 
-/// Node position. Optional: Fleet control has this information. Can be sent additionally,
-/// e.g., for debugging purposes.
+/// Node position. The object is defined in chapter 5.4 Topic: Order (from master control to
+/// AGV).
+/// Optional:Master control has this information. Can be sent additionally, e.g., for
+/// debugging purposes.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodePosition {
@@ -480,127 +388,57 @@ pub struct NodePosition {
     pub y: f64,
 }
 
-/// Current operating mode of the mobile robot.
-#[derive(Serialize, Deserialize, Default)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum OperatingMode {
-    #[default]
-    Automatic,
-    Intervened,
-    Manual,
-    Semiautomatic,
-    Service,
-    Startup,
-    #[serde(rename = "TEACH_IN")]
-    TeachIn,
-}
-
-/// Represents a path within the robot's currently active order as NURBS.
+/// Current operating mode of the AGV.
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlannedPath {
-    pub trajectory: Trajectory,
-    /// Array of nodeIds as communicated in the currently executed order that are traversed
-    /// within the shared planned path.
-    pub traversed_nodes: Option<Vec<String>>,
-}
-
-/// Contains all battery-related information.
-#[derive(Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct PowerSupply {
-    /// Battery current in Ampere (A)
-    pub battery_current: Option<f64>,
-    /// State of health in percent.
-    pub battery_health: Option<f64>,
-    /// Battery voltage
-    pub battery_voltage: Option<f64>,
-    /// True: charging in progress. False: mobile robot is currently not charging.
-    pub charging: bool,
-    /// Estimated reach with current State of Charge in meter.
-    pub range: Option<f64>,
-    /// State of Charge in %: If mobile robot only provides values for good or bad battery
-    /// levels, these will be indicated as 20% (bad) and 80% (good).
-    pub state_of_charge: f64,
+pub enum OperatingMode {
+    #[serde(rename = "AUTOMATIC")]
+    Automatic,
+    #[serde(rename = "MANUAL")]
+    Manual,
+    #[serde(rename = "SEMIAUTOMATIC")]
+    Semiautomatic,
+    #[serde(rename = "SERVICE")]
+    Service,
+    #[serde(rename = "TEACHIN")]
+    Teachin,
 }
 
 /// Contains all safety-related information.
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SafetyState {
-    /// EmergencyStop-Types:  MANUAL: e-stop shall be acknowledged manually at the mobile robot.
-    /// REMOTE: facility e-stop shall be acknowledged remotely. NONE: no e-stop activated.
-    pub active_emergency_stop: ActiveEmergencyStop,
+    /// Acknowledge-Type of eStop: AUTOACK: auto-acknowledgeable e-stop is activated, e.g., by
+    /// bumper or protective field. MANUAL: e-stop hast to be acknowledged manually at the
+    /// vehicle. REMOTE: facility e-stop has to be acknowledged remotely. NONE: no e-stop
+    /// activated.
+    pub e_stop: EStop,
     /// Protective field violation. True: field is violated. False: field is not violated.
     pub field_violation: bool,
 }
 
-/// EmergencyStop-Types:  MANUAL: e-stop shall be acknowledged manually at the mobile robot.
-/// REMOTE: facility e-stop shall be acknowledged remotely. NONE: no e-stop activated.
-#[derive(Serialize, Deserialize, Default)]
-pub enum ActiveEmergencyStop {
+/// Acknowledge-Type of eStop: AUTOACK: auto-acknowledgeable e-stop is activated, e.g., by
+/// bumper or protective field. MANUAL: e-stop hast to be acknowledged manually at the
+/// vehicle. REMOTE: facility e-stop has to be acknowledged remotely. NONE: no e-stop
+/// activated.
+#[derive(Serialize, Deserialize)]
+pub enum EStop {
+    #[serde(rename = "AUTOACK")]
+    Autoack,
     #[serde(rename = "MANUAL")]
     Manual,
     #[serde(rename = "NONE")]
-    #[default]
     None,
     #[serde(rename = "REMOTE")]
     Remote,
 }
 
-/// The mobile robot's velocity in mobile robot coordinates
+/// The AGVs velocity in vehicle coordinates
 #[derive(Serialize, Deserialize)]
 pub struct Velocity {
-    /// The mobile robot's turning speed around its z axis.
+    /// The AVGs turning speed around its z axis.
     pub omega: Option<f64>,
-    /// The mobile robot's velocity in its x direction
+    /// The AVGs velocity in its x direction
     pub vx: Option<f64>,
-    /// The mobile robot's velocity in its y direction
+    /// The AVGs velocity in its y direction
     pub vy: Option<f64>,
-}
-
-/// Zone information sent by the mobile robot to fleet control.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ZoneRequest {
-    /// Unique per mobile robot identifier within all active requests.
-    pub request_id: String,
-    /// When stating a request, this is set to REQUESTED. After response or update from fleet
-    /// control set to GRANTED or REVOKED. If lease time expires, shall be to EXPIRED.
-    pub request_status: RequestStatus,
-    /// Enum specifying the type of zone the request relates to. Feasible values are ACCESS or
-    /// REPLANNING.
-    pub request_type: ZoneRequestRequestType,
-    pub trajectory: Option<Trajectory>,
-    /// Locally (within the zone set) unique identifier referencing the zone the request is
-    /// related to.
-    pub zone_id: String,
-    /// Due to the zoneId only being unique to a zoneSet, the zoneSetId is part of the request.
-    pub zone_set_id: String,
-}
-
-/// Enum specifying the type of zone the request relates to. Feasible values are ACCESS or
-/// REPLANNING.
-#[derive(Serialize, Deserialize)]
-pub enum ZoneRequestRequestType {
-    #[serde(rename = "ACCESS")]
-    Access,
-    #[serde(rename = "REPLANNING")]
-    Replanning,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ZoneSet {
-    /// Identifier of the corresponding map.
-    pub map_id: String,
-    /// Unique identifier of the zone set that is currently enabled for the map.<br> This field
-    /// shall be left empty only if the mobile robot has no zones defined for the corresponding
-    /// map.
-    pub zone_set_id: String,
-    /// ENABLED: Indicates this zone set is currently active / used on the mobile robot. At most
-    /// one zone set for each map can have its status set to ENABLED. DISABLED: Indicates this
-    /// zone set is currently not enabled on the mobile robot and thus could be enabled or
-    /// deleted by fleet control.
-    pub zone_set_status: Status,
 }

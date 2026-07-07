@@ -1,6 +1,6 @@
 use rustrack_shared::vda5050::state::{
-    ActiveEmergencyStop, ControlPoint, EdgeState, Error, ErrorLevel, MobileRobotPosition,
-    NodePosition, NodeState, OperatingMode, PowerSupply, SafetyState, State, Trajectory, Velocity,
+    AgvPosition, BatteryState, ControlPoint, EStop, EdgeState, Error, ErrorLevel, NodePosition,
+    NodeState, OperatingMode, SafetyState, State, Trajectory, Velocity,
 };
 
 use crate::{
@@ -155,7 +155,7 @@ impl AgvSimulator {
                 theta: Some(0.0),
                 map_id: MAP_ID.to_string(),
             }),
-            node_descriptor: None,
+            node_description: None,
         }];
 
         State {
@@ -172,40 +172,44 @@ impl AgvSimulator {
             paused: Some(false),
             new_base_request: Some(false),
             distance_since_last_node,
-            mobile_robot_position: Some(MobileRobotPosition {
+            agv_position: Some(AgvPosition {
                 x,
                 y,
                 theta,
                 map_id: MAP_ID.to_string(),
-                localized: true,
+                map_description: None,
+                position_initialized: true,
                 localization_score: Some(1.0),
                 deviation_range: None,
             }),
             velocity,
             node_states,
             edge_states,
-            power_supply: PowerSupply {
-                state_of_charge: self.battery_pct,
+            battery_state: BatteryState {
+                battery_charge: self.battery_pct,
                 charging: false,
                 battery_voltage: None,
                 battery_health: Some(100.0),
-                battery_current: None,
-                range: None,
+                reach: None,
             },
             errors: self.maybe_error(),
             safety_state: SafetyState {
-                active_emergency_stop: ActiveEmergencyStop::None,
+                e_stop: EStop::None,
                 field_violation: false,
             },
             operating_mode: OperatingMode::Automatic,
-            ..State::default()
+            action_states: vec![],
+            information: None,
+            loads: None,
+            maps: None,
+            zone_set_id: None,
         }
     }
 
     fn build_edge_state(&self, edge_id: &str, edge: &Edge) -> EdgeState {
         let trajectory = edge.curve.as_ref().map(|nurbs| Trajectory {
-            degree: Some(nurbs.degree as i64),
-            knot_vector: Some(nurbs.knots.clone()),
+            degree: nurbs.degree as i64,
+            knot_vector: nurbs.knots.clone(),
             control_points: nurbs
                 .control_points
                 .iter()
@@ -222,7 +226,7 @@ impl AgvSimulator {
             sequence_id: 1,
             released: true,
             trajectory,
-            edge_descriptor: None,
+            edge_description: None,
         }
     }
 
@@ -232,9 +236,7 @@ impl AgvSimulator {
                 error_type: "batteryLow".to_string(),
                 error_level: ErrorLevel::Warning,
                 error_description: Some(format!("Battery at {:.1}%", self.battery_pct)),
-                error_description_translations: None,
                 error_hint: None,
-                error_hint_translations: None,
                 error_references: None,
             }]
         } else {

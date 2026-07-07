@@ -21,8 +21,8 @@ pub struct Position {
 #[derive(Clone)]
 pub struct Trajectory {
     pub control_points: Vec<ControlPoint>,
-    pub degree: Option<i64>,
-    pub knot_vector: Option<Vec<f64>>,
+    pub degree: i64,
+    pub knot_vector: Vec<f64>,
 }
 
 #[derive(Clone)]
@@ -78,10 +78,15 @@ impl StateManager {
         let timestamp = DateTime::parse_from_rfc3339(&state.timestamp)?.with_timezone(&Utc);
 
         let robot_state = RobotState {
-            position: state.mobile_robot_position.map(Position::from),
+            position: state.agv_position.map(Position::from),
+            // v2 has no planned path; the trajectory lives per-edge. Use the first released
+            // edge that carries one.
             trajectory: state
-                .planned_path
-                .map(|path| Trajectory::from(path.trajectory)),
+                .edge_states
+                .into_iter()
+                .filter(|e| e.released)
+                .find_map(|e| e.trajectory)
+                .map(Trajectory::from),
             timestamp,
         };
 
@@ -117,23 +122,24 @@ impl StateManager {
         id: String,
         visualization: Visualization,
     ) -> anyhow::Result<()> {
-        let timestamp = DateTime::parse_from_rfc3339(&visualization.timestamp)?.with_timezone(&Utc);
-        let position = visualization.mobile_robot_position.map(Position::from);
-        let trajectory = visualization
-            .planned_path
-            .map(|path| Trajectory::from(path.trajectory));
+        // v2 visualization timestamps are optional; fall back to now when absent.
+        let timestamp = visualization
+            .timestamp
+            .as_deref()
+            .map(DateTime::parse_from_rfc3339)
+            .transpose()?
+            .map(|t| t.with_timezone(&Utc))
+            .unwrap_or_else(Utc::now);
+        let position = visualization.agv_position.map(Position::from);
 
         let has_position = position.is_some();
-        let has_trajectory = trajectory.is_some();
 
         let mut states = self.states.write().await;
         if let Some(existing) = states.get_mut(&id) {
+            // v2 visualization carries no trajectory; only refresh the position.
             if position.is_some() {
                 existing.vda_state.position = position;
                 existing.vda_state.timestamp = timestamp;
-            }
-            if trajectory.is_some() {
-                existing.vda_state.trajectory = trajectory;
             }
         } else {
             // First message we ever received for this robot was a visualization.
@@ -142,7 +148,7 @@ impl StateManager {
                 MobileRobotState {
                     vda_state: RobotState {
                         position,
-                        trajectory,
+                        trajectory: None,
                         timestamp,
                     },
                     interpolated_state: None,
@@ -151,7 +157,7 @@ impl StateManager {
         }
 
         tracing::debug!(
-            "visualization update for '{id}' (has_position={has_position}, has_trajectory={has_trajectory}), tracking {} robot(s)",
+            "visualization update for '{id}' (has_position={has_position}), tracking {} robot(s)",
             states.len()
         );
 
@@ -174,8 +180,8 @@ impl StateManager {
     }
 }
 
-impl From<state::MobileRobotPosition> for Position {
-    fn from(p: state::MobileRobotPosition) -> Self {
+impl From<state::AgvPosition> for Position {
+    fn from(p: state::AgvPosition) -> Self {
         Self {
             x: p.x as f32,
             y: p.y as f32,
@@ -184,8 +190,8 @@ impl From<state::MobileRobotPosition> for Position {
     }
 }
 
-impl From<visualization::MobileRobotPosition> for Position {
-    fn from(p: visualization::MobileRobotPosition) -> Self {
+impl From<visualization::AgvPosition> for Position {
+    fn from(p: visualization::AgvPosition) -> Self {
         Self {
             x: p.x as f32,
             y: p.y as f32,
@@ -204,32 +210,8 @@ impl From<state::ControlPoint> for ControlPoint {
     }
 }
 
-impl From<visualization::ControlPoint> for ControlPoint {
-    fn from(c: visualization::ControlPoint) -> Self {
-        Self {
-            x: c.x,
-            y: c.y,
-            weight: c.weight,
-        }
-    }
-}
-
 impl From<state::Trajectory> for Trajectory {
     fn from(t: state::Trajectory) -> Self {
-        Self {
-            control_points: t
-                .control_points
-                .into_iter()
-                .map(ControlPoint::from)
-                .collect(),
-            degree: t.degree,
-            knot_vector: t.knot_vector,
-        }
-    }
-}
-
-impl From<visualization::Trajectory> for Trajectory {
-    fn from(t: visualization::Trajectory) -> Self {
         Self {
             control_points: t
                 .control_points
