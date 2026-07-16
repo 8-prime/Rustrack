@@ -1,12 +1,12 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Ok;
 use tokio::{sync::broadcast, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
-use crate::runtime::state::{MobileRobotState, StateManager};
+use crate::runtime::state::{InterpolatedState, StateManager};
 
-pub type StateSnapshot = Arc<HashMap<String, MobileRobotState>>;
+pub type StateSnapshot = Arc<Vec<InterpolatedState>>;
 
 pub struct Publisher {
     sender: broadcast::Sender<StateSnapshot>,

@@ -85,16 +85,11 @@ pub struct RobotState {
 
 #[derive(Clone)]
 pub struct InterpolatedState {
+    pub serial: String,
     pub x: f32,
     pub y: f32,
     pub theta: f32,
     pub timestamp: DateTime<Utc>,
-}
-
-#[derive(Clone)]
-pub struct MobileRobotState {
-    pub vda_state: RobotState,
-    pub interpolated_state: Option<InterpolatedState>,
 }
 
 impl RobotState {
@@ -129,7 +124,7 @@ impl RobotState {
 }
 
 pub struct StateManager {
-    states: RwLock<HashMap<String, Arc<MobileRobotState>>>,
+    states: RwLock<HashMap<String, Arc<RobotState>>>,
 }
 
 impl StateManager {
@@ -142,11 +137,12 @@ impl StateManager {
     /// Snapshot the current states and compute a fresh interpolated pose for each
     /// robot. The lock is held only long enough to walk the map and clone out
     /// each robot's `Arc` pointer (cheap refcount bumps, no `RobotState` data
-    /// touched); the interpolation math and the per-robot `RobotState` clone
-    /// happen after the lock is released, so they never block MQTT writers.
+    /// touched); the interpolation math happens after the lock is released, so
+    /// it never blocks MQTT writers. Robots that can't be interpolated (no pose
+    /// yet) are dropped from the result rather than published with stale data.
     /// Returns an error instead of panicking if the lock is poisoned.
-    pub fn snapshot_interpolated(&self) -> anyhow::Result<HashMap<String, MobileRobotState>> {
-        let states: Vec<(String, Arc<MobileRobotState>)> = {
+    pub fn snapshot_interpolated(&self) -> anyhow::Result<Vec<InterpolatedState>> {
+        let states: Vec<(String, Arc<RobotState>)> = {
             let guard = self
                 .states
                 .read()
@@ -156,30 +152,15 @@ impl StateManager {
                 .map(|(id, state)| (id.clone(), Arc::clone(state)))
                 .collect()
         };
-        tracing::trace!("snapshot taken for {} robot(s)", states.len());
+        let total = states.len();
+        tracing::trace!("snapshot taken for {total} robot(s)");
 
-        let mut interpolated = 0usize;
-        let result: HashMap<String, MobileRobotState> = states
+        let result: Vec<InterpolatedState> = states
             .into_iter()
-            .map(|(id, state)| {
-                let interpolated_state = interpolation::engine::interpolate(&state);
-                if interpolated_state.is_some() {
-                    interpolated += 1;
-                }
-                (
-                    id,
-                    MobileRobotState {
-                        vda_state: state.vda_state.clone(),
-                        interpolated_state,
-                    },
-                )
-            })
+            .filter_map(|(id, state)| interpolation::engine::interpolate(&id, &state))
             .collect();
 
-        tracing::trace!(
-            "interpolation updated: {interpolated}/{} robot(s) have a pose",
-            result.len()
-        );
+        tracing::trace!("interpolated {}/{total} robot(s)", result.len());
 
         Ok(result)
     }
@@ -209,25 +190,21 @@ impl StateManager {
             .write()
             .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
         if let Some(existing) = states.get_mut(&id) {
-            let mutable = Arc::make_mut(existing);
-            let vs = &mut mutable.vda_state;
+            let vs = Arc::make_mut(existing);
             vs.record_pose(position, distance, timestamp);
             vs.velocity = velocity;
             vs.trajectory = trajectory;
         } else {
             states.insert(
                 id.clone(),
-                Arc::new(MobileRobotState {
-                    vda_state: RobotState {
-                        position,
-                        previous: None,
-                        received_at: Instant::now(),
-                        velocity,
-                        trajectory,
-                        distance_since_last_node: distance,
-                        timestamp,
-                    },
-                    interpolated_state: None,
+                Arc::new(RobotState {
+                    position,
+                    previous: None,
+                    received_at: Instant::now(),
+                    velocity,
+                    trajectory,
+                    distance_since_last_node: distance,
+                    timestamp,
                 }),
             );
         }
@@ -267,8 +244,7 @@ impl StateManager {
             // interpolation falls back to linear between poses rather than pairing
             // this fresh position with a now-stale point on the path.
             if position.is_some() {
-                let mutable = Arc::make_mut(existing);
-                let vs = &mut mutable.vda_state;
+                let vs = Arc::make_mut(existing);
                 vs.record_pose(position, None, timestamp);
                 vs.velocity = velocity;
             }
@@ -276,17 +252,14 @@ impl StateManager {
             // First message we ever received for this robot was a visualization.
             states.insert(
                 id.clone(),
-                Arc::new(MobileRobotState {
-                    vda_state: RobotState {
-                        position,
-                        previous: None,
-                        received_at: Instant::now(),
-                        velocity,
-                        trajectory: None,
-                        distance_since_last_node: None,
-                        timestamp,
-                    },
-                    interpolated_state: None,
+                Arc::new(RobotState {
+                    position,
+                    previous: None,
+                    received_at: Instant::now(),
+                    velocity,
+                    trajectory: None,
+                    distance_since_last_node: None,
+                    timestamp,
                 }),
             );
         }

@@ -24,7 +24,7 @@ use chrono::{DateTime, Utc};
 use shared::nurbs::{ControlPoint as NurbsControlPoint, NurbsCurve};
 
 use crate::runtime::state::{
-    InterpolatedState, MobileRobotState, PoseSample, Position, RobotState, Trajectory, Velocity,
+    InterpolatedState, PoseSample, Position, RobotState, Trajectory, Velocity,
 };
 
 /// Linear segments used to approximate the curve's arc length.
@@ -40,15 +40,14 @@ const MAX_INTERVAL_S: f64 = 2.0;
 /// arrives, so a robot that only ever sends one update doesn't drift forever.
 const MAX_DEAD_RECKON_S: f64 = 0.5;
 
-pub fn interpolate(robot_state: &MobileRobotState) -> Option<InterpolatedState> {
-    let vda = &robot_state.vda_state;
+pub fn interpolate(serial: &str, vda: &RobotState) -> Option<InterpolatedState> {
     let cur = vda.position.as_ref()?;
     let now = Instant::now();
     let stamp = Utc::now();
 
     match &vda.previous {
         // Two real samples: interpolate between them at the delayed render time.
-        Some(prev) => Some(interpolate_between(prev, vda, cur, now, stamp)),
+        Some(prev) => Some(interpolate_between(serial, prev, vda, cur, now, stamp)),
         // Only one sample so far: dead-reckon briefly so the robot starts moving
         // immediately rather than sitting still until the second update lands.
         None => {
@@ -56,7 +55,7 @@ pub fn interpolate(robot_state: &MobileRobotState) -> Option<InterpolatedState> 
                 .saturating_duration_since(vda.received_at)
                 .as_secs_f64()
                 .min(MAX_DEAD_RECKON_S);
-            Some(dead_reckon(cur, vda.velocity, dt, stamp))
+            Some(dead_reckon(serial, cur, vda.velocity, dt, stamp))
         }
     }
 }
@@ -65,6 +64,7 @@ pub fn interpolate(robot_state: &MobileRobotState) -> Option<InterpolatedState> 
 /// real time, so the render point stays *between* `previous` and the current
 /// sample instead of running past it.
 fn interpolate_between(
+    serial: &str,
     prev: &PoseSample,
     vda: &RobotState,
     cur: &Position,
@@ -90,19 +90,20 @@ fn interpolate_between(
         vda.distance_since_last_node,
     ) {
         if d1 >= d0 {
-            if let Some(state) = interpolate_along_path(traj, d0, d1, f, stamp) {
+            if let Some(state) = interpolate_along_path(serial, traj, d0, d1, f, stamp) {
                 return state;
             }
         }
     }
 
-    linear(&prev.position, cur, f, stamp)
+    linear(serial, &prev.position, cur, f, stamp)
 }
 
 /// Sweep along the NURBS from arc-length `d0` to `d1` by fraction `f`. Returns
 /// `None` for a malformed or degenerate trajectory so the caller falls back to a
 /// straight line.
 fn interpolate_along_path(
+    serial: &str,
     trajectory: &Trajectory,
     d0: f64,
     d1: f64,
@@ -137,6 +138,7 @@ fn interpolate_along_path(
     let theta = tangent_heading(&curve, &table, s, total);
 
     Some(InterpolatedState {
+        serial: serial.to_string(),
         x: x as f32,
         y: y as f32,
         theta: theta as f32,
@@ -156,9 +158,16 @@ fn tangent_heading(curve: &NurbsCurve, table: &[(f64, f64)], s: f64, total: f64)
 }
 
 /// Straight-line blend between two poses, taking the shortest arc for heading.
-fn linear(prev: &Position, cur: &Position, f: f64, stamp: DateTime<Utc>) -> InterpolatedState {
+fn linear(
+    serial: &str,
+    prev: &Position,
+    cur: &Position,
+    f: f64,
+    stamp: DateTime<Utc>,
+) -> InterpolatedState {
     let f = f as f32;
     InterpolatedState {
+        serial: serial.to_string(),
         x: prev.x + (cur.x - prev.x) * f,
         y: prev.y + (cur.y - prev.y) * f,
         theta: angle_lerp(prev.theta, cur.theta, f),
@@ -170,6 +179,7 @@ fn linear(prev: &Position, cur: &Position, f: f64, stamp: DateTime<Utc>) -> Inte
 /// coordinates (`vx` forward, `vy` lateral), so it is rotated into the world frame
 /// by the reported heading before being added to the position.
 fn dead_reckon(
+    serial: &str,
     position: &Position,
     velocity: Option<Velocity>,
     dt: f64,
@@ -186,6 +196,7 @@ fn dead_reckon(
     };
 
     InterpolatedState {
+        serial: serial.to_string(),
         x: position.x + dx as f32,
         y: position.y + dy as f32,
         theta: position.theta + dtheta as f32,

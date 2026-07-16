@@ -77,28 +77,15 @@ async fn stream_states(
 fn encode_snapshot(snapshot: &StateSnapshot) -> Bytes {
     let records: Vec<AgvRecord> = snapshot
         .iter()
-        .filter_map(|(serial, robot)| {
-            let (x, y, theta) = match &robot.interpolated_state {
-                Some(i) => (i.x, i.y, i.theta),
-                None => {
-                    let p = robot.vda_state.position.as_ref()?;
-                    (p.x, p.y, p.theta)
-                }
-            };
-            Some(AgvRecord {
-                serial: serial.clone(),
-                x,
-                y,
-                theta,
-            })
+        .map(|s| AgvRecord {
+            serial: s.serial.clone(),
+            x: s.x,
+            y: s.y,
+            theta: s.theta,
         })
         .collect();
 
-    tracing::trace!(
-        "encoded {} of {} robot(s) into frame (robots without a pose are dropped)",
-        records.len(),
-        snapshot.len()
-    );
+    tracing::trace!("encoded {} robot(s) into frame", records.len());
 
     encode_frame(&records)
 }
