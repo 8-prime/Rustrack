@@ -46,8 +46,13 @@ impl Publisher {
                         break;
                     }
                         _ = ticker.tick() => {
-                            state_manager.update_interpolation().await;
-                            let snapshot = state_manager.get_snapshot().await;
+                            let snapshot = match state_manager.snapshot_interpolated() {
+                                std::result::Result::Ok(snapshot) => snapshot,
+                                std::result::Result::Err(e) => {
+                                    tracing::error!("skipping publish tick: {e}");
+                                    continue;
+                                }
+                            };
                             let robots = snapshot.len();
                             match sender.send(Arc::new(snapshot)) {
                                 std::result::Result::Ok(subscribers) => tracing::trace!(

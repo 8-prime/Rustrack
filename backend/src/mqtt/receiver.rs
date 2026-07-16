@@ -155,11 +155,7 @@ async fn handle_message(
     match (serial, kind) {
         (Some(serial), Some("state")) => {
             match serde_json::from_slice::<State>(&publish_message.payload) {
-                Ok(state) => {
-                    state_manager
-                        .update_state(serial.to_string(), state)
-                        .await?
-                }
+                Ok(state) => state_manager.update_state(serial.to_string(), state)?,
                 Err(e) => {
                     tracing::warn!("failed to parse state for '{serial}': {e}");
                 }
@@ -168,9 +164,7 @@ async fn handle_message(
         (Some(serial), Some("visualization")) => {
             match serde_json::from_slice::<Visualization>(&publish_message.payload) {
                 Ok(visualization) => {
-                    state_manager
-                        .update_visualization(serial.to_string(), visualization)
-                        .await?
+                    state_manager.update_visualization(serial.to_string(), visualization)?
                 }
                 Err(e) => {
                     tracing::warn!("failed to parse visualization for '{serial}': {e}");
