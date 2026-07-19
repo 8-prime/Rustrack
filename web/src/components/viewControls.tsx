@@ -3,10 +3,10 @@ export type View = "map" | "log";
 
 export function StatusBadge({ status }: { status: Status }) {
   const styles: Record<Status, string> = {
-    idle: "bg-gray-200 text-gray-700",
-    connecting: "bg-amber-100 text-amber-800",
-    connected: "bg-green-100 text-green-800",
-    closed: "bg-red-100 text-red-800",
+    idle: "bg-white/10 text-gray-300",
+    connecting: "bg-amber-500/15 text-amber-300",
+    connected: "bg-green-500/15 text-green-300",
+    closed: "bg-red-500/15 text-red-300",
   };
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${styles[status]}`}>
@@ -26,7 +26,7 @@ export function ViewToggle({ view, onChange }: ViewToggleProps) {
     { value: "log", label: "Log" },
   ];
   return (
-    <div className="inline-flex overflow-hidden rounded border border-gray-300">
+    <div className="inline-flex overflow-hidden rounded border border-white/15">
       {options.map((opt) => (
         <button
           key={opt.value}
@@ -34,8 +34,8 @@ export function ViewToggle({ view, onChange }: ViewToggleProps) {
           onClick={() => onChange(opt.value)}
           className={`px-2 py-1 text-xs ${
             view === opt.value
-              ? "bg-gray-800 text-white"
-              : "bg-white text-gray-700 hover:bg-gray-100"
+              ? "bg-amber-500 font-medium text-black"
+              : "bg-transparent text-gray-300 hover:bg-white/10"
           }`}
         >
           {opt.label}

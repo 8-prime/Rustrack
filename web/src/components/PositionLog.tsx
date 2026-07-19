@@ -97,17 +97,17 @@ export function PositionLog({ systemId, view, onViewChange }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-2 text-sm">
+      <div className="flex items-center gap-3 border-b border-white/10 bg-[#1f2124] px-4 py-2 text-sm text-gray-200">
         <span className="font-semibold">Published positions</span>
         <StatusBadge status={status} />
-        <span className="text-gray-500">{robotCount} robot(s)</span>
+        <span className="text-gray-400">{robotCount} robot(s)</span>
         <div className="ml-auto flex items-center gap-2">
           <ViewToggle view={view} onChange={onViewChange} />
           <button
             type="button"
             disabled={!systemId}
             onClick={() => setPaused((p) => !p)}
-            className="rounded border border-gray-300 px-2 py-1 text-xs disabled:opacity-40"
+            className="rounded border border-white/15 px-2 py-1 text-xs text-gray-300 hover:bg-white/10 disabled:opacity-40"
           >
             {paused ? "Resume" : "Pause"}
           </button>
@@ -117,7 +117,7 @@ export function PositionLog({ systemId, view, onViewChange }: Props) {
               pending.current = [];
               setLines([]);
             }}
-            className="rounded border border-gray-300 px-2 py-1 text-xs"
+            className="rounded border border-white/15 px-2 py-1 text-xs text-gray-300 hover:bg-white/10"
           >
             Clear
           </button>
@@ -127,7 +127,7 @@ export function PositionLog({ systemId, view, onViewChange }: Props) {
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="flex-1 overflow-y-auto bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100"
+        className="flex-1 overflow-y-auto bg-[#141518] p-3 font-mono text-xs leading-relaxed text-gray-100"
       >
         {!systemId && (
           <div className="text-gray-500">Select a system to view its positions.</div>

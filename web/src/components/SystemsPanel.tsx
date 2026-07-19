@@ -164,11 +164,11 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
   };
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
+    <div className="flex h-full flex-col gap-4 overflow-y-auto bg-[#1f2124] p-4 text-gray-200">
       <h1 className="text-lg font-semibold">Systems</h1>
 
       {error && (
-        <div className="rounded bg-red-100 px-3 py-2 text-sm text-red-800">
+        <div className="rounded bg-red-500/15 px-3 py-2 text-sm text-red-300">
           {error}
         </div>
       )}
@@ -185,7 +185,7 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
       {/* System list */}
       <ul className="flex flex-col gap-2">
         {systems.length === 0 && (
-          <li className="text-sm text-gray-500">No systems yet.</li>
+          <li className="text-sm text-gray-400">No systems yet.</li>
         )}
         {systems.map(({ config, state, lif }) => {
           const selected = config.id === selectedId;
@@ -199,10 +199,10 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
               onClick={() => onSelect(config.id)}
               className={`cursor-pointer rounded border p-3 ${
                 editing
-                  ? "border-blue-500 ring-2 ring-blue-200"
+                  ? "border-amber-500 ring-2 ring-amber-500/30"
                   : selected
-                    ? "border-blue-500 bg-blue-50"
-                    : "border-gray-200 hover:border-gray-300"
+                    ? "border-amber-500 bg-amber-500/10"
+                    : "border-white/10 hover:border-white/25"
               }`}
             >
               <div className="flex items-center justify-between gap-2">
@@ -210,23 +210,23 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
                     running
-                      ? "bg-green-100 text-green-800"
-                      : "bg-gray-200 text-gray-700"
+                      ? "bg-green-500/15 text-green-300"
+                      : "bg-white/10 text-gray-300"
                   }`}
                 >
                   {state}
                 </span>
               </div>
-              <div className="mt-1 text-xs text-gray-500">
+              <div className="mt-1 text-xs text-gray-400">
                 {config.mqtt_url}:{config.mqtt_port} · {config.vda5050_topic_prefix}
               </div>
-              <div className="mt-1 text-xs text-gray-500">
+              <div className="mt-1 text-xs text-gray-400">
                 {lif ? (
                   <span title={`Uploaded ${new Date(lif.uploadedAt).toLocaleString()}`}>
                     🗺 {describeLif(lif)}
                   </span>
                 ) : (
-                  <span className="text-gray-400">No map uploaded</span>
+                  <span className="text-gray-500">No map uploaded</span>
                 )}
               </div>
               <div className="mt-2 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
@@ -280,7 +280,7 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
       <form
         onSubmit={onSubmit}
         className={`mt-auto flex flex-col gap-2 rounded border p-3 ${
-          editingId ? "border-blue-400 bg-blue-50/50" : "border-gray-200"
+          editingId ? "border-amber-500/60 bg-amber-500/5" : "border-white/10"
         }`}
       >
         <h2 className="text-sm font-semibold">
@@ -291,7 +291,7 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
           placeholder="Name"
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
-          className="rounded border border-gray-300 px-2 py-1 text-sm"
+          className="rounded border border-white/15 bg-[#17181b] px-2 py-1 text-sm text-gray-200 placeholder:text-gray-500"
         />
         <div className="flex gap-2">
           <input
@@ -299,7 +299,7 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
             placeholder="MQTT host"
             value={form.mqtt_url}
             onChange={(e) => setForm({ ...form, mqtt_url: e.target.value })}
-            className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
+            className="min-w-0 flex-1 rounded border border-white/15 bg-[#17181b] px-2 py-1 text-sm text-gray-200 placeholder:text-gray-500"
           />
           <input
             required
@@ -309,7 +309,7 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
             onChange={(e) =>
               setForm({ ...form, mqtt_port: Number(e.target.value) })
             }
-            className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
+            className="w-20 rounded border border-white/15 bg-[#17181b] px-2 py-1 text-sm text-gray-200 placeholder:text-gray-500"
           />
         </div>
         <div className="flex gap-2">
@@ -317,14 +317,14 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
             placeholder="Username (optional)"
             value={form.mqtt_username ?? ""}
             onChange={(e) => setForm({ ...form, mqtt_username: e.target.value })}
-            className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
+            className="min-w-0 flex-1 rounded border border-white/15 bg-[#17181b] px-2 py-1 text-sm text-gray-200 placeholder:text-gray-500"
           />
           <input
             type="password"
             placeholder="Password (optional)"
             value={form.mqtt_password ?? ""}
             onChange={(e) => setForm({ ...form, mqtt_password: e.target.value })}
-            className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
+            className="min-w-0 flex-1 rounded border border-white/15 bg-[#17181b] px-2 py-1 text-sm text-gray-200 placeholder:text-gray-500"
           />
         </div>
         <input
@@ -334,7 +334,7 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
           onChange={(e) =>
             setForm({ ...form, vda5050_topic_prefix: e.target.value })
           }
-          className="rounded border border-gray-300 px-2 py-1 text-sm"
+          className="rounded border border-white/15 bg-[#17181b] px-2 py-1 text-sm text-gray-200 placeholder:text-gray-500"
         />
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -350,7 +350,7 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
           <button
             type="submit"
             disabled={saving}
-            className="flex-1 rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+            className="flex-1 rounded bg-amber-500 px-3 py-1.5 text-sm font-medium text-black disabled:opacity-40"
           >
             {saving ? "Saving…" : editingId ? "Save changes" : "Create system"}
           </button>
@@ -359,7 +359,7 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
               type="button"
               disabled={saving}
               onClick={cancelEdit}
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 disabled:opacity-40"
+              className="rounded border border-white/15 px-3 py-1.5 text-sm font-medium text-gray-300 hover:bg-white/10 disabled:opacity-40"
             >
               Cancel
             </button>

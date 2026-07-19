@@ -10,8 +10,8 @@ function App() {
   const [view, setView] = useState<View>("map");
 
   return (
-    <div className="flex h-screen w-screen">
-      <aside className="w-80 shrink-0 border-r border-gray-200">
+    <div className="flex h-screen w-screen bg-[#17181b] text-gray-200">
+      <aside className="w-80 shrink-0 border-r border-white/10">
         <SystemsPanel selectedId={selectedId} onSelect={setSelectedId} />
       </aside>
       <main className="min-w-0 flex-1">
