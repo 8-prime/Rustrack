@@ -261,6 +261,166 @@ fn authored_knots_match_previously_synthesized_curve() {
     );
 }
 
+/// Swap E1's plain properties for a trajectory that bulges 2 m above the
+/// straight line between N1 (0,0) and N2 (10,0).
+fn json_with_curved_edge() -> String {
+    let knots = serde_json::to_string(&open_uniform_knots(3, 2)).unwrap();
+    sample_json().replace(
+        r#"{ "vehicleTypeId": "vt-a", "maxSpeed": 2.0 }"#,
+        &format!(
+            r#"{{ "vehicleTypeId": "vt-a", "trajectory": {{
+                "degree": 2,
+                "knotVector": {knots},
+                "controlPoints": [
+                  {{ "x": 0.0, "y": 0.0 }}, {{ "x": 5.0, "y": 4.0 }}, {{ "x": 10.0, "y": 0.0 }}
+                ]
+            }}}}"#
+        ),
+    )
+}
+
+#[test]
+fn map_view_projects_the_whole_layout() {
+    let lif = parse(&sample_json());
+    let map = lif.map_view(None).expect("single layout projects");
+
+    assert_eq!(map.layout_id, "L1");
+    assert_eq!(map.layout_name.as_deref(), Some("Test"));
+    assert_eq!(map.available_layouts, vec!["L1".to_string()]);
+    assert_eq!(map.nodes.len(), 2);
+    assert_eq!(map.edges.len(), 1);
+    assert_eq!(map.nodes[0].theta, Some(0.0));
+    // N2 constrains no orientation for either vehicle type.
+    assert_eq!(map.nodes[1].theta, None);
+
+    // Station carries its own position and name through.
+    assert_eq!(map.stations.len(), 1);
+    assert_eq!(map.stations[0].id, "S1");
+    assert_eq!(map.stations[0].x, 10.0);
+    assert_eq!(map.stations[0].y, 1.0);
+
+    // Bounds span the nodes and the station above N2.
+    let b = map.bounds.expect("layout has geometry");
+    assert_eq!((b.min_x, b.min_y, b.max_x, b.max_y), (0.0, 0.0, 10.0, 1.0));
+}
+
+/// The distinction from `resolve`: a map shows the whole track. N1 declares
+/// only `vt-a` and E1 only carries `vt-a` properties, yet drawing must not drop
+/// either the way `resolve(_, "vt-b")` does.
+#[test]
+fn map_view_takes_the_union_across_vehicle_types() {
+    let lif = parse(&sample_json());
+    let map = lif.map_view(None).expect("projects");
+
+    let ids: Vec<&str> = map.nodes.iter().map(|n| n.id.as_str()).collect();
+    assert_eq!(ids, vec!["N1", "N2"]);
+    assert_eq!(map.edges[0].id, "E1");
+}
+
+#[test]
+fn map_view_draws_untrajectoried_edge_as_a_segment() {
+    let lif = parse(&sample_json());
+    let map = lif.map_view(None).expect("projects");
+
+    // No trajectory authored: exactly the two endpoints, in order.
+    assert_eq!(map.edges[0].points, vec![[0.0, 0.0], [10.0, 0.0]]);
+}
+
+#[test]
+fn map_view_tessellates_a_trajectory() {
+    let lif = parse(&json_with_curved_edge());
+    validate(&lif).expect("curve should be valid");
+    let map = lif.map_view(None).expect("projects");
+
+    let points = &map.edges[0].points;
+    assert!(points.len() > 2, "a curve must not collapse to a segment");
+    // Endpoints are interpolated by a clamped knot vector, so the polyline
+    // still starts and ends on the nodes.
+    assert!((points[0][0] - 0.0).abs() < 1e-9 && (points[0][1] - 0.0).abs() < 1e-9);
+    let last = points.last().unwrap();
+    assert!((last[0] - 10.0).abs() < 1e-9 && (last[1] - 0.0).abs() < 1e-9);
+
+    // The bulge peaks at half the control point's height for a quadratic, and
+    // bounds must grow to include it — nodes alone would report maxY = 1.0
+    // (the station) and clip the curve.
+    let b = map.bounds.expect("has geometry");
+    assert!(b.max_y > 1.5, "bounds must cover the curve, got {}", b.max_y);
+}
+
+/// A stored document can predate a validation rule, and a map is not the place
+/// to start failing: a curve that cannot be evaluated degrades to a straight
+/// line rather than panicking inside `find_span`.
+#[test]
+fn map_view_degrades_malformed_curve_to_a_segment() {
+    let json = sample_json().replace(
+        r#"{ "vehicleTypeId": "vt-a", "maxSpeed": 2.0 }"#,
+        r#"{ "vehicleTypeId": "vt-a", "trajectory": {
+            "degree": 2,
+            "knotVector": [0.0, 0.0, 1.0],
+            "controlPoints": [
+              { "x": 0.0, "y": 0.0 }, { "x": 5.0, "y": 2.0 }, { "x": 10.0, "y": 0.0 }
+            ]
+        }}"#,
+    );
+    let lif = parse(&json);
+    assert!(validate(&lif).is_err(), "fixture should be the rejected one");
+
+    let map = lif.map_view(None).expect("projects anyway");
+    assert_eq!(map.edges[0].points, vec![[0.0, 0.0], [10.0, 0.0]]);
+}
+
+/// Unlike `resolve`, an ambiguous or unknown layout id is not an error — a
+/// viewer should show something rather than nothing.
+#[test]
+fn map_view_falls_back_to_the_first_layout() {
+    let two = sample_json().replace(
+        r#""layouts": ["#,
+        r#""layouts": [{
+            "layoutId": "L0", "nodes": [], "edges": [], "stations": []
+        },"#,
+    );
+    let lif = parse(&two);
+
+    assert!(lif.resolve(None, "vt-a").is_err(), "resolve stays strict");
+    assert_eq!(lif.map_view(None).unwrap().layout_id, "L0");
+    assert_eq!(lif.map_view(Some("L1")).unwrap().layout_id, "L1");
+    assert_eq!(lif.map_view(Some("nope")).unwrap().layout_id, "L0");
+
+    // Both ids offered so a client can build a layer selector from one fetch.
+    assert_eq!(
+        lif.map_view(None).unwrap().available_layouts,
+        vec!["L0".to_string(), "L1".to_string()]
+    );
+    // An empty layout is drawable, it just has nothing to draw.
+    assert!(lif.map_view(Some("L0")).unwrap().bounds.is_none());
+}
+
+#[test]
+fn map_view_places_positionless_station_at_its_interaction_node() {
+    let json = sample_json().replace(
+        r#""stationPosition": { "x": 10.0, "y": 1.0, "theta": 1.57 }"#,
+        r#""stationName": "Pick A""#,
+    );
+    let map = parse(&json).map_view(None).expect("projects");
+
+    assert_eq!(map.stations[0].name.as_deref(), Some("Pick A"));
+    // Falls back to N2, the node it is interacted with from.
+    assert_eq!((map.stations[0].x, map.stations[0].y), (10.0, 0.0));
+}
+
+#[test]
+fn map_view_serializes_camel_case() {
+    let lif = parse(&sample_json());
+    let json = serde_json::to_value(lif.map_view(None).unwrap()).unwrap();
+
+    assert!(json.get("layoutId").is_some());
+    assert!(json.get("availableLayouts").is_some());
+    assert!(json["bounds"].get("minX").is_some());
+    // Points stay as bare [x, y] pairs rather than named fields — half the
+    // bytes, and the payload is mostly points.
+    assert_eq!(json["edges"][0]["points"][0], serde_json::json!([0.0, 0.0]));
+}
+
 #[test]
 fn summary_counts_across_layouts() {
     let lif = parse(&sample_json());

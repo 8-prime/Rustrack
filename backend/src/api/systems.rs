@@ -1,11 +1,12 @@
 use axum::{
     Json,
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use chrono::Utc;
+use serde::Deserialize;
 use shared::lif::LifSummary;
 use uuid::Uuid;
 
@@ -121,6 +122,45 @@ pub async fn get_lif(
         gzip,
     )
         .into_response())
+}
+
+#[derive(Deserialize)]
+pub struct MapQuery {
+    /// Which layout to draw. Absent takes the first — a document usually has
+    /// only one, and multi-layout files list the rest in `availableLayouts`.
+    pub layout: Option<String>,
+}
+
+/// Fetch a system's layout as drawable geometry.
+///
+/// The counterpart to [`get_lif`], for clients that want to render rather than
+/// round-trip the document: nodes as points, edges tessellated into polylines,
+/// and the bounding box to fit them to a viewport. Small enough to fetch on
+/// view — a layout whose source is tens of megabytes projects to hundreds of
+/// kilobytes, since the per-vehicle-type properties and actions drop out.
+pub async fn get_map(
+    State(state): State<WebApp>,
+    Path(id): Path<String>,
+    Query(query): Query<MapQuery>,
+) -> Result<Response, AppError> {
+    if !state.runtimes_manager.exists(&id).await {
+        return Err(AppError::not_found(anyhow::anyhow!(
+            "system '{id}' does not exist"
+        )));
+    }
+
+    let Some(map) = state.runtimes_manager.get_map(id.clone(), query.layout).await? else {
+        return Err(AppError::not_found(anyhow::anyhow!(
+            "system '{id}' has no layout"
+        )));
+    };
+
+    // Serialized by hand rather than returned as `Json<Arc<MapView>>`, which
+    // would need serde's `rc` feature — a workspace-wide flag to enable for one
+    // response. The `Arc` is what lets the cached view be shared without
+    // cloning the geometry, so it is worth keeping.
+    let body = serde_json::to_vec(&*map)?;
+    Ok(([(header::CONTENT_TYPE, "application/json")], body).into_response())
 }
 
 /// Remove a system's stored layout.

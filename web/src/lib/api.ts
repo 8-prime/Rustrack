@@ -37,6 +37,57 @@ export interface SystemInfo {
   lif: LifSummary | null;
 }
 
+/** Axis-aligned extent of a layout, in metres. */
+export interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+export interface MapNode {
+  id: string;
+  x: number;
+  y: number;
+  /** Radians, when a vehicle type constrains the orientation here. */
+  theta: number | null;
+}
+
+export interface MapEdge {
+  id: string;
+  from: string;
+  to: string;
+  /** At least two `[x, y]` points. Curved edges arrive already tessellated. */
+  points: [number, number][];
+}
+
+export interface MapStation {
+  id: string;
+  name: string | null;
+  x: number;
+  y: number;
+}
+
+/**
+ * A layout projected into drawable geometry (see `shared/src/lif/map.rs`).
+ *
+ * The renderable counterpart to the raw LIF document: the per-vehicle-type
+ * indirection is collapsed, NURBS trajectories are already tessellated into
+ * polylines, and the bounding box is precomputed. Nothing here needs LIF
+ * knowledge to draw.
+ */
+export interface MapView {
+  layoutId: string;
+  layoutName: string | null;
+  /** Every layout in the document, for a layer selector. Usually just one. */
+  availableLayouts: string[];
+  /** Null only when the layout has no geometry at all. */
+  bounds: Bounds | null;
+  nodes: MapNode[];
+  edges: MapEdge[];
+  stations: MapStation[];
+}
+
 /** Body for `POST /api/systems`. */
 export interface CreateSystem {
   name: string;
@@ -128,6 +179,22 @@ export function uploadLif(id: string, file: File): Promise<LifSummary> {
  */
 export function getLif(id: string): Promise<unknown> {
   return request<unknown>(`/api/systems/${encodeURIComponent(id)}/lif`);
+}
+
+/**
+ * Fetch a system's layout as drawable geometry.
+ *
+ * Prefer this over `getLif` for rendering: the projection is a few hundred
+ * kilobytes where the source document can be tens of megabytes, and it needs
+ * no NURBS evaluation client-side. Rejects with a 404 when the system has no
+ * layout uploaded.
+ *
+ * `layout` picks one layout out of a multi-layout document; omit it for the
+ * first, which is also the one the backend keeps cached.
+ */
+export function getMap(id: string, layout?: string): Promise<MapView> {
+  const query = layout ? `?layout=${encodeURIComponent(layout)}` : "";
+  return request<MapView>(`/api/systems/${encodeURIComponent(id)}/map${query}`);
 }
 
 export function deleteLif(id: string): Promise<void> {

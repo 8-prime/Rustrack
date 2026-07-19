@@ -47,6 +47,9 @@ pub fn new() -> anyhow::Result<Router> {
                 .delete(systems::delete_lif)
                 .layer(DefaultBodyLimit::max(MAX_LIF_UPLOAD_BYTES)),
         )
+        // The drawable projection of the same layout. Read-only, so no body
+        // limit applies.
+        .route("/api/systems/{id}/map", get(systems::get_map))
         .route("/api/systems/{id}/ws", get(ws::handler))
         .with_state(web_app_state);
 

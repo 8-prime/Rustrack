@@ -24,11 +24,13 @@
 //! [`Lif`] anywhere the full graph is not actually needed.
 
 pub mod error;
+pub mod map;
 pub mod model;
 pub mod resolve;
 pub mod validate;
 
 pub use error::{IdKind, LifError, LifErrors, MAX_REPORTED_ERRORS};
+pub use map::{Bounds, MapEdge, MapNode, MapStation, MapView};
 pub use model::*;
 pub use resolve::{ResolvedEdge, ResolvedLayout, ResolvedNode, DEFAULT_MAX_SPEED};
 pub use validate::validate;
