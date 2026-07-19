@@ -15,6 +15,7 @@ use config::{AgvDef, ScenarioKind, SimConfig};
 use fleet::FleetController;
 use map::NodeMap;
 use publisher::Publisher;
+use rustrack_shared::lif::{self, Lif};
 use scenario::{RandomWalkScenario, ScriptedScenario};
 
 #[derive(Parser)]
@@ -65,8 +66,8 @@ async fn main() -> Result<()> {
         }
     });
 
-    // 3. Build the node map
-    let map = NodeMap::build(&cfg.map);
+    // 3. Load the LIF layout and build the node map
+    let map = load_map(&cli.config, &cfg.map)?;
 
     // 4. Build the fleet
     let agvs = build_fleet(&cfg.fleet, &map);
@@ -96,6 +97,48 @@ async fn main() -> Result<()> {
 
         tokio::time::sleep(tick_interval).await;
     }
+}
+
+/// Read, validate, and resolve the LIF layout referenced by the config.
+///
+/// The map path is resolved relative to the config file's directory, so a
+/// config and its layout can be moved together.
+fn load_map(config_path: &std::path::Path, map_cfg: &config::MapConfig) -> Result<NodeMap> {
+    let lif_path = match config_path.parent() {
+        Some(dir) if !map_cfg.file.is_absolute() => dir.join(&map_cfg.file),
+        _ => map_cfg.file.clone(),
+    };
+
+    let raw = std::fs::read_to_string(&lif_path)
+        .map_err(|e| anyhow::anyhow!("failed to read LIF map {lif_path:?}: {e}"))?;
+    let lif: Lif = serde_json::from_str(&raw)
+        .map_err(|e| anyhow::anyhow!("{lif_path:?} is not valid LIF JSON: {e}"))?;
+
+    // Validate before building: NodeMap indexes edge endpoints directly, so a
+    // dangling node reference would panic rather than report a useful error.
+    lif::validate(&lif).map_err(|e| anyhow::anyhow!("{lif_path:?}: {e}"))?;
+
+    let layout = lif
+        .resolve(map_cfg.layout_id.as_deref(), &map_cfg.vehicle_type_id)
+        .map_err(|e| anyhow::anyhow!("{lif_path:?}: {e}"))?;
+
+    tracing::info!(
+        "loaded layout '{}' ({} nodes, {} edges) for vehicle type '{}'",
+        layout.layout_id,
+        layout.nodes.len(),
+        layout.edges.len(),
+        map_cfg.vehicle_type_id,
+    );
+    if layout.nodes_excluded > 0 || layout.edges_excluded > 0 {
+        tracing::warn!(
+            "{} nodes and {} edges are not available to vehicle type '{}' and were excluded",
+            layout.nodes_excluded,
+            layout.edges_excluded,
+            map_cfg.vehicle_type_id,
+        );
+    }
+
+    Ok(NodeMap::build(&layout))
 }
 
 fn build_fleet(defs: &[AgvDef], map: &NodeMap) -> Vec<agv::AgvSimulator> {

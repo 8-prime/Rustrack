@@ -8,8 +8,6 @@ use crate::{
     scenario::Scenario,
 };
 
-/// Map identifier reported in the VDA5050 state. The simulator uses a single map.
-const MAP_ID: &str = "sim-map";
 
 enum Motion {
     Idle,
@@ -159,8 +157,8 @@ impl AgvSimulator {
             node_position: map.nodes.get(&self.current_node).map(|n| NodePosition {
                 x: n.x,
                 y: n.y,
-                theta: Some(0.0),
-                map_id: MAP_ID.to_string(),
+                theta: Some(n.theta.unwrap_or(0.0)),
+                map_id: map.map_id.clone(),
             }),
             node_description: None,
         }];
@@ -183,7 +181,7 @@ impl AgvSimulator {
                 x,
                 y,
                 theta,
-                map_id: MAP_ID.to_string(),
+                map_id: map.map_id.clone(),
                 map_description: None,
                 position_initialized: true,
                 localization_score: Some(1.0),

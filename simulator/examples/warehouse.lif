@@ -1,0 +1,122 @@
+{
+  "metaInformation": {
+    "projectIdentification": "Rustrack Warehouse Demo",
+    "creator": "rustrack-simulator",
+    "exportTimestamp": "2026-07-19T00:00:00Z",
+    "lifVersion": "1.0.0"
+  },
+  "layouts": [
+    {
+      "layoutId": "warehouse",
+      "layoutVersion": "1",
+      "layoutName": "10-node warehouse grid",
+      "layoutLevelId": "1",
+      "layoutDescription": "Two parallel aisles connected at each end. Edge E02N is a NURBS arc demonstrating curve following.",
+      "nodes": [
+        { "nodeId": "N01", "mapId": "warehouse-floor-1", "nodePosition": { "x": 0.0, "y": 0.0 },
+          "vehicleTypeNodeProperties": [{ "vehicleTypeId": "sim-agv" }] },
+        { "nodeId": "N02", "mapId": "warehouse-floor-1", "nodePosition": { "x": 5.0, "y": 0.0 },
+          "vehicleTypeNodeProperties": [{ "vehicleTypeId": "sim-agv" }] },
+        { "nodeId": "N03", "mapId": "warehouse-floor-1", "nodePosition": { "x": 10.0, "y": 0.0 },
+          "vehicleTypeNodeProperties": [{ "vehicleTypeId": "sim-agv" }] },
+        { "nodeId": "N04", "mapId": "warehouse-floor-1", "nodePosition": { "x": 15.0, "y": 0.0 },
+          "vehicleTypeNodeProperties": [{ "vehicleTypeId": "sim-agv" }] },
+        { "nodeId": "N05", "mapId": "warehouse-floor-1", "nodePosition": { "x": 20.0, "y": 0.0 },
+          "vehicleTypeNodeProperties": [{ "vehicleTypeId": "sim-agv" }] },
+        { "nodeId": "N06", "mapId": "warehouse-floor-1", "nodePosition": { "x": 0.0, "y": -8.0 },
+          "vehicleTypeNodeProperties": [{ "vehicleTypeId": "sim-agv" }] },
+        { "nodeId": "N07", "mapId": "warehouse-floor-1", "nodePosition": { "x": 5.0, "y": -8.0 },
+          "vehicleTypeNodeProperties": [{ "vehicleTypeId": "sim-agv" }] },
+        { "nodeId": "N08", "mapId": "warehouse-floor-1", "nodePosition": { "x": 10.0, "y": -8.0 },
+          "vehicleTypeNodeProperties": [{ "vehicleTypeId": "sim-agv" }] },
+        { "nodeId": "N09", "mapId": "warehouse-floor-1", "nodePosition": { "x": 15.0, "y": -8.0 },
+          "vehicleTypeNodeProperties": [{ "vehicleTypeId": "sim-agv" }] },
+        { "nodeId": "N10", "mapId": "warehouse-floor-1", "nodePosition": { "x": 20.0, "y": -8.0 },
+          "vehicleTypeNodeProperties": [{ "vehicleTypeId": "sim-agv" }] }
+      ],
+      "edges": [
+        { "edgeId": "E01", "startNodeId": "N01", "endNodeId": "N02",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E02", "startNodeId": "N02", "endNodeId": "N03",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E03", "startNodeId": "N03", "endNodeId": "N04",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E04", "startNodeId": "N04", "endNodeId": "N05",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+
+        { "edgeId": "E05", "startNodeId": "N06", "endNodeId": "N07",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E06", "startNodeId": "N07", "endNodeId": "N08",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E07", "startNodeId": "N08", "endNodeId": "N09",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E08", "startNodeId": "N09", "endNodeId": "N10",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+
+        { "edgeId": "E09", "startNodeId": "N01", "endNodeId": "N06",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.0 }] },
+        { "edgeId": "E10", "startNodeId": "N05", "endNodeId": "N10",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.0 }] },
+
+        { "edgeId": "E01R", "startNodeId": "N02", "endNodeId": "N01",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E02R", "startNodeId": "N03", "endNodeId": "N02",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E03R", "startNodeId": "N04", "endNodeId": "N03",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E04R", "startNodeId": "N05", "endNodeId": "N04",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+
+        { "edgeId": "E05R", "startNodeId": "N07", "endNodeId": "N06",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E06R", "startNodeId": "N08", "endNodeId": "N07",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E07R", "startNodeId": "N09", "endNodeId": "N08",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+        { "edgeId": "E08R", "startNodeId": "N10", "endNodeId": "N09",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.5 }] },
+
+        { "edgeId": "E09R", "startNodeId": "N06", "endNodeId": "N01",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.0 }] },
+        { "edgeId": "E10R", "startNodeId": "N10", "endNodeId": "N05",
+          "vehicleTypeEdgeProperties": [{ "vehicleTypeId": "sim-agv", "maxSpeed": 1.0 }] },
+
+        {
+          "edgeId": "E02N",
+          "startNodeId": "N02",
+          "endNodeId": "N03",
+          "vehicleTypeEdgeProperties": [
+            {
+              "vehicleTypeId": "sim-agv",
+              "maxSpeed": 1.2,
+              "orientationType": "TANGENTIAL",
+              "trajectory": {
+                "degree": 2,
+                "knotVector": [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                "controlPoints": [
+                  { "x": 5.0, "y": 0.0, "weight": 1.0 },
+                  { "x": 7.5, "y": 1.5, "weight": 1.0 },
+                  { "x": 10.0, "y": 0.0, "weight": 1.0 }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "stations": [
+        {
+          "stationId": "PICK-01",
+          "stationName": "Pick station 1",
+          "interactionNodeIds": ["N03"],
+          "stationPosition": { "x": 10.0, "y": 1.5, "theta": 1.5707963267948966 }
+        },
+        {
+          "stationId": "CHARGE-01",
+          "stationName": "Charger 1",
+          "interactionNodeIds": ["N08"],
+          "stationPosition": { "x": 10.0, "y": -9.5, "theta": -1.5707963267948966 }
+        }
+      ]
+    }
+  ]
+}

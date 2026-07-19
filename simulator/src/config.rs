@@ -38,44 +38,20 @@ fn default_tick_hz() -> f64 {
     1.0
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct NodeDef {
-    pub id: String,
-    pub x: f64,
-    pub y: f64,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct ControlPointDef {
-    pub x: f64,
-    pub y: f64,
-    #[serde(default = "default_weight")]
-    pub w: f64,
-}
-
-fn default_weight() -> f64 {
-    1.0
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct EdgeDef {
-    pub id: String,
-    pub from: String,
-    pub to: String,
-    #[serde(default = "default_max_speed")]
-    pub max_speed: f64,
-    /// Optional NURBS control points. If absent, edge uses linear interpolation.
-    pub control_points: Option<Vec<ControlPointDef>>,
-}
-
-fn default_max_speed() -> f64 {
-    1.5
-}
-
+/// Where the track layout comes from.
+///
+/// The map is a LIF (VDMA Layout Interchange Format) file rather than an inline
+/// table, so layouts exported by a vehicle integrator load without conversion.
 #[derive(Debug, Deserialize, Clone)]
 pub struct MapConfig {
-    pub nodes: Vec<NodeDef>,
-    pub edges: Vec<EdgeDef>,
+    /// Path to the `.lif` file, resolved relative to the config file's directory.
+    pub file: std::path::PathBuf,
+    /// Which vehicle type's properties to resolve. LIF scopes traversability,
+    /// speed, and orientation per vehicle type; nodes and edges without an entry
+    /// for this type are excluded from the simulated graph.
+    pub vehicle_type_id: String,
+    /// Which layout to use. Optional when the file contains exactly one.
+    pub layout_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]

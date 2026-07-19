@@ -6,6 +6,9 @@ port = 1883
 topic_prefix = "uagv"
 tick_hz = 1.0
 
+# The track layout lives in a LIF file (VDMA Layout Interchange Format), so
+# layouts exported by a vehicle integrator load without conversion.
+#
 # 10-node warehouse grid: two parallel aisles connected at each end
 #
 #  N01 --E01-- N02 --E02-- N03 --E03-- N04 --E04-- N05
@@ -14,193 +17,13 @@ tick_hz = 1.0
 #   |                                               |
 #  N06 --E05-- N07 --E06-- N08 --E07-- N09 --E08-- N10
 
-[[map.nodes]]
-id = "N01"
-x = 0.0
-y = 0.0
-
-[[map.nodes]]
-id = "N02"
-x = 5.0
-y = 0.0
-
-[[map.nodes]]
-id = "N03"
-x = 10.0
-y = 0.0
-
-[[map.nodes]]
-id = "N04"
-x = 15.0
-y = 0.0
-
-[[map.nodes]]
-id = "N05"
-x = 20.0
-y = 0.0
-
-[[map.nodes]]
-id = "N06"
-x = 0.0
-y = -8.0
-
-[[map.nodes]]
-id = "N07"
-x = 5.0
-y = -8.0
-
-[[map.nodes]]
-id = "N08"
-x = 10.0
-y = -8.0
-
-[[map.nodes]]
-id = "N09"
-x = 15.0
-y = -8.0
-
-[[map.nodes]]
-id = "N10"
-x = 20.0
-y = -8.0
-
-# Top aisle — left to right
-[[map.edges]]
-id = "E01"
-from = "N01"
-to = "N02"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E02"
-from = "N02"
-to = "N03"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E03"
-from = "N03"
-to = "N04"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E04"
-from = "N04"
-to = "N05"
-max_speed = 1.5
-
-# Bottom aisle — left to right
-[[map.edges]]
-id = "E05"
-from = "N06"
-to = "N07"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E06"
-from = "N07"
-to = "N08"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E07"
-from = "N08"
-to = "N09"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E08"
-from = "N09"
-to = "N10"
-max_speed = 1.5
-
-# Cross-aisle connectors
-[[map.edges]]
-id = "E09"
-from = "N01"
-to = "N06"
-max_speed = 1.0
-
-[[map.edges]]
-id = "E10"
-from = "N05"
-to = "N10"
-max_speed = 1.0
-
-# Return edges — right to left (top aisle)
-[[map.edges]]
-id = "E01R"
-from = "N02"
-to = "N01"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E02R"
-from = "N03"
-to = "N02"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E03R"
-from = "N04"
-to = "N03"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E04R"
-from = "N05"
-to = "N04"
-max_speed = 1.5
-
-# Return edges — right to left (bottom aisle)
-[[map.edges]]
-id = "E05R"
-from = "N07"
-to = "N06"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E06R"
-from = "N08"
-to = "N07"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E07R"
-from = "N09"
-to = "N08"
-max_speed = 1.5
-
-[[map.edges]]
-id = "E08R"
-from = "N10"
-to = "N09"
-max_speed = 1.5
-
-# Return connectors
-[[map.edges]]
-id = "E09R"
-from = "N06"
-to = "N01"
-max_speed = 1.0
-
-[[map.edges]]
-id = "E10R"
-from = "N10"
-to = "N05"
-max_speed = 1.0
-
-# NURBS example: arc between N02 and N03 (demonstrates curve-following)
-[[map.edges]]
-id = "E02N"
-from = "N02"
-to = "N03"
-max_speed = 1.2
-control_points = [
-    { x = 5.0,  y = 0.0, w = 1.0 },
-    { x = 7.5,  y = 1.5, w = 1.0 },
-    { x = 10.0, y = 0.0, w = 1.0 },
-]
+[map]
+# Path is relative to this config file.
+file = "warehouse.lif"
+# LIF scopes speed, orientation, and traversability per vehicle type. Nodes and
+# edges without an entry for this type are excluded from the simulated graph.
+vehicle_type_id = "sim-agv"
+layout_id = "warehouse"
 
 # Fleet: 3 scripted + 2 random walkers
 [[fleet]]
