@@ -14,7 +14,9 @@ export const CANVAS = {
 } as const;
 
 // AGVs are drawn at a fixed physical footprint so they stay in proportion to
-// the track, clamped so they remain visible on very large or very small layouts.
+// the track. The px bounds apply to the *auto-fit* size only -- they keep
+// vehicles legible on very large or very small layouts, and user zoom then
+// scales the sprite freely on top of them.
 export const AGV_FOOTPRINT_M = 1.2;
 export const AGV_MIN_PX = 14;
 export const AGV_MAX_PX = 96;

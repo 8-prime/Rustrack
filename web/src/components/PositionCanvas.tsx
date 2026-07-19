@@ -38,7 +38,11 @@ interface Frame {
 // The world -> screen transform. `scale`/`cx`/`cy` come from the auto-fit;
 // `zoom` and the pan offsets are layered on top by the user's view controls.
 interface Transform {
+  // Composite px-per-metre: the auto-fit scale already multiplied by `zoom`.
   scale: number;
+  // The user's multiplier relative to the auto-fit. Kept alongside `scale` so
+  // callers that need the bare fit scale can divide it back out.
+  zoom: number;
   cx: number;
   cy: number;
   w: number;
@@ -118,6 +122,7 @@ function fit(b: Bounds, w: number, h: number, view: ViewState): Transform {
   const availH = h * (1 - 2 * PADDING_FRAC);
   return {
     scale: Math.min(availW / spanX, availH / spanY) * view.zoom,
+    zoom: view.zoom,
     cx: (b.minX + b.maxX) / 2,
     cy: (b.minY + b.maxY) / 2,
     w,
@@ -143,6 +148,18 @@ function unproject(t: Transform, sx: number, sy: number): [number, number] {
   ];
 }
 
+// The AGV's on-screen size, in px. The clamps keep vehicles readable on layouts
+// whose auto-fit would otherwise draw them as specks or as slabs -- but they act
+// on the fit scale alone. User zoom multiplies afterwards, so zooming in keeps
+// growing the sprite in proportion to the track instead of pinning it at
+// AGV_MAX_PX partway through the zoom range.
+function agvSize(t: Transform): number {
+  const fitted = AGV_FOOTPRINT_M * (t.scale / t.zoom);
+  return Math.min(Math.max(fitted, AGV_MIN_PX), AGV_MAX_PX) * t.zoom;
+}
+
+// `zoom` is omitted: it is redundant with `scale` for a given `w`/`h`, so two
+// transforms agreeing on everything here already agree on it.
 function sameTransform(a: Transform, b: Transform): boolean {
   return (
     a.scale === b.scale &&
@@ -429,7 +446,7 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
       // `scale` is proportional to zoom, so the new scale follows from the ratio
       // without refitting; then solve for the pan that pins (wx, wy) under the
       // cursor.
-      const scale = (t.scale / v.zoom) * next;
+      const scale = (t.scale / t.zoom) * next;
       v.zoom = next;
       v.panX = px - t.w / 2 - (wx - t.cx) * scale;
       v.panY = py - t.h / 2 + (wy - t.cy) * scale;
@@ -576,10 +593,10 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
           f = Math.min(Math.max((now - cur.time) / interval, 0), 1);
         }
 
-        const size = Math.min(
-          Math.max(AGV_FOOTPRINT_M * transform.scale, AGV_MIN_PX),
-          AGV_MAX_PX,
-        );
+        const size = agvSize(transform);
+        // Below the sprite, but only until the sprite outgrows the label gap --
+        // past that the text would drift away from the vehicle it names.
+        const labelGap = Math.min(size / 2, AGV_MAX_PX / 2) + 4;
         const ready = spriteReady();
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
@@ -618,7 +635,7 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
           ctx.font = "11px ui-monospace, monospace";
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
-          ctx.fillText(r.serial, sx, sy + size / 2 + 4);
+          ctx.fillText(r.serial, sx, sy + labelGap);
           ctx.textAlign = "left";
           ctx.textBaseline = "middle";
         }
