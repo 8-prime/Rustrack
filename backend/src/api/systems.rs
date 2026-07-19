@@ -1,9 +1,12 @@
 use axum::{
     Json,
+    body::Bytes,
     extract::{Path, State},
-    http::StatusCode,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
 };
 use chrono::Utc;
+use shared::lif::LifSummary;
 use uuid::Uuid;
 
 use crate::{
@@ -68,4 +71,63 @@ pub async fn stop_system(
 ) -> Result<StatusCode, AppError> {
     state.runtimes_manager.stop(id).await?;
     Ok(StatusCode::OK)
+}
+
+pub async fn upload_lif(
+    State(state): State<WebApp>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> Result<Json<LifSummary>, AppError> {
+    if body.is_empty() {
+        return Err(AppError::bad_request(anyhow::anyhow!("empty request body")));
+    }
+
+    let known = state.runtimes_manager.exists(&id).await;
+    if !known {
+        return Err(AppError::not_found(anyhow::anyhow!(
+            "system '{id}' does not exist"
+        )));
+    }
+
+    // A parse or validation failure is the client's problem, not ours.
+    let summary = state
+        .runtimes_manager
+        .set_lif(id, body)
+        .await
+        .map_err(AppError::bad_request)?;
+
+    Ok(Json(summary))
+}
+
+/// Fetch a system's stored layout.
+///
+/// The document is stored gzipped and served that way — the backend never
+/// decompresses it, and clients decode it transparently.
+pub async fn get_lif(
+    State(state): State<WebApp>,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    let Some(gzip) = state.runtimes_manager.get_lif_gzip(id.clone()).await? else {
+        return Err(AppError::not_found(anyhow::anyhow!(
+            "system '{id}' has no layout"
+        )));
+    };
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (header::CONTENT_ENCODING, "gzip"),
+        ],
+        gzip,
+    )
+        .into_response())
+}
+
+/// Remove a system's stored layout.
+pub async fn delete_lif(
+    State(state): State<WebApp>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    state.runtimes_manager.delete_lif(id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

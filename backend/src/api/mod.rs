@@ -2,10 +2,15 @@ use std::sync::Arc;
 
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     routing::{get, post, put},
 };
 
 use crate::runtime::manager::RuntimesManager;
+
+/// Upload ceiling for a LIF layout. Real layouts run to tens of megabytes;
+/// this leaves generous headroom while still bounding the request.
+const MAX_LIF_UPLOAD_BYTES: usize = 128 * 1024 * 1024;
 
 pub mod error;
 pub mod health;
@@ -35,6 +40,13 @@ pub fn new() -> anyhow::Result<Router> {
         )
         .route("/api/systems/{id}/start", post(systems::start_system))
         .route("/api/systems/{id}/stop", post(systems::stop_system))
+        .route(
+            "/api/systems/{id}/lif",
+            get(systems::get_lif)
+                .post(systems::upload_lif)
+                .delete(systems::delete_lif)
+                .layer(DefaultBodyLimit::max(MAX_LIF_UPLOAD_BYTES)),
+        )
         .route("/api/systems/{id}/ws", get(ws::handler))
         .with_state(web_app_state);
 

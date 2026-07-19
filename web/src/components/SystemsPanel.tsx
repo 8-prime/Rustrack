@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type Configuration,
   type CreateSystem,
+  type LifSummary,
   type SystemInfo,
   createSystem,
   deleteSystem,
@@ -9,6 +10,7 @@ import {
   startSystem,
   stopSystem,
   updateSystem,
+  uploadLif,
 } from "../lib/api";
 
 interface Props {
@@ -25,6 +27,19 @@ const EMPTY_FORM: CreateSystem = {
   tls_skip_verify: false,
   vda5050_topic_prefix: "uagv/v2",
 };
+
+/** Render a byte count for display, since layouts range from KB to tens of MB. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** One-line description of a system's loaded layout. */
+function describeLif(lif: LifSummary): string {
+  const layouts = lif.layoutCount === 1 ? "1 layout" : `${lif.layoutCount} layouts`;
+  return `${lif.projectIdentification} · ${layouts}, ${lif.nodeCount} nodes, ${lif.edgeCount} edges · ${formatBytes(lif.rawBytes)}`;
+}
 
 /** Project a persisted config down to the editable form fields. */
 function formFrom(config: Configuration): CreateSystem {
@@ -46,6 +61,12 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Tracked separately from busyId so the button can say "Uploading…" — a large
+  // layout takes several seconds, and the control must not look unresponsive.
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  // One shared hidden input; the row that opened the picker is remembered here.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadTargetRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -74,6 +95,29 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
       setError(String(e));
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const onPickLif = (id: string) => {
+    uploadTargetRef.current = id;
+    fileInputRef.current?.click();
+  };
+
+  const onLifSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const id = uploadTargetRef.current;
+    // Clear immediately so re-picking the same file fires change again.
+    e.target.value = "";
+    uploadTargetRef.current = null;
+    if (!file || !id) return;
+
+    setUploadingId(id);
+    try {
+      await runAction(id, async () => {
+        await uploadLif(id, file);
+      });
+    } finally {
+      setUploadingId(null);
     }
   };
 
@@ -129,16 +173,26 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
         </div>
       )}
 
+      {/* Shared by every row's "Upload map" button; the target id is held in a ref. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".lif,.json,application/json"
+        onChange={onLifSelected}
+        className="hidden"
+      />
+
       {/* System list */}
       <ul className="flex flex-col gap-2">
         {systems.length === 0 && (
           <li className="text-sm text-gray-500">No systems yet.</li>
         )}
-        {systems.map(({ config, state }) => {
+        {systems.map(({ config, state, lif }) => {
           const selected = config.id === selectedId;
           const running = state === "Running";
           const busy = busyId === config.id;
           const editing = editingId === config.id;
+          const uploading = uploadingId === config.id;
           return (
             <li
               key={config.id}
@@ -166,7 +220,16 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
               <div className="mt-1 text-xs text-gray-500">
                 {config.mqtt_url}:{config.mqtt_port} · {config.vda5050_topic_prefix}
               </div>
-              <div className="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
+              <div className="mt-1 text-xs text-gray-500">
+                {lif ? (
+                  <span title={`Uploaded ${new Date(lif.uploadedAt).toLocaleString()}`}>
+                    🗺 {describeLif(lif)}
+                  </span>
+                ) : (
+                  <span className="text-gray-400">No map uploaded</span>
+                )}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
                 <button
                   type="button"
                   disabled={busy || running}
@@ -190,6 +253,14 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
                   className="rounded bg-slate-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-40"
                 >
                   {editing ? "Cancel" : "Edit"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onPickLif(config.id)}
+                  className="rounded bg-indigo-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-40"
+                >
+                  {uploading ? "Uploading…" : lif ? "Replace map" : "Upload map"}
                 </button>
                 <button
                   type="button"
