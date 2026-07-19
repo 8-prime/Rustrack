@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  type Configuration,
   type CreateSystem,
   type SystemInfo,
   createSystem,
@@ -7,6 +8,7 @@ import {
   listSystems,
   startSystem,
   stopSystem,
+  updateSystem,
 } from "../lib/api";
 
 interface Props {
@@ -24,12 +26,26 @@ const EMPTY_FORM: CreateSystem = {
   vda5050_topic_prefix: "uagv/v2",
 };
 
+/** Project a persisted config down to the editable form fields. */
+function formFrom(config: Configuration): CreateSystem {
+  return {
+    name: config.name,
+    mqtt_url: config.mqtt_url,
+    mqtt_port: config.mqtt_port,
+    mqtt_username: config.mqtt_username ?? "",
+    mqtt_password: config.mqtt_password ?? "",
+    tls_skip_verify: config.tls_skip_verify,
+    vda5050_topic_prefix: config.vda5050_topic_prefix,
+  };
+}
+
 export function SystemsPanel({ selectedId, onSelect }: Props) {
   const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<CreateSystem>(EMPTY_FORM);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -61,14 +77,25 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
     }
   };
 
+  const cancelEdit = () => {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+  };
+
+  const onEdit = (config: Configuration) => {
+    setEditingId(config.id);
+    setForm(formFrom(config));
+  };
+
   const onDelete = async (id: string) => {
     await runAction(id, () => deleteSystem(id));
     if (selectedId === id) onSelect(null);
+    if (editingId === id) cancelEdit();
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setCreating(true);
+    setSaving(true);
     try {
       // Send empty optional strings as null.
       const body: CreateSystem = {
@@ -77,14 +104,18 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
         mqtt_username: form.mqtt_username?.trim() ? form.mqtt_username.trim() : null,
         mqtt_password: form.mqtt_password?.trim() ? form.mqtt_password.trim() : null,
       };
-      await createSystem(body);
-      setForm(EMPTY_FORM);
+      if (editingId) {
+        await updateSystem(editingId, body);
+      } else {
+        await createSystem(body);
+      }
+      cancelEdit();
       await refresh();
       setError(null);
     } catch (e) {
       setError(String(e));
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
 
@@ -107,14 +138,17 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
           const selected = config.id === selectedId;
           const running = state === "Running";
           const busy = busyId === config.id;
+          const editing = editingId === config.id;
           return (
             <li
               key={config.id}
               onClick={() => onSelect(config.id)}
               className={`cursor-pointer rounded border p-3 ${
-                selected
-                  ? "border-blue-500 bg-blue-50"
-                  : "border-gray-200 hover:border-gray-300"
+                editing
+                  ? "border-blue-500 ring-2 ring-blue-200"
+                  : selected
+                    ? "border-blue-500 bg-blue-50"
+                    : "border-gray-200 hover:border-gray-300"
               }`}
             >
               <div className="flex items-center justify-between gap-2">
@@ -152,6 +186,14 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
                 <button
                   type="button"
                   disabled={busy}
+                  onClick={() => (editing ? cancelEdit() : onEdit(config))}
+                  className="rounded bg-slate-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-40"
+                >
+                  {editing ? "Cancel" : "Edit"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
                   onClick={() => onDelete(config.id)}
                   className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-40"
                 >
@@ -163,12 +205,16 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
         })}
       </ul>
 
-      {/* Create form */}
+      {/* Create / edit form */}
       <form
         onSubmit={onSubmit}
-        className="mt-auto flex flex-col gap-2 rounded border border-gray-200 p-3"
+        className={`mt-auto flex flex-col gap-2 rounded border p-3 ${
+          editingId ? "border-blue-400 bg-blue-50/50" : "border-gray-200"
+        }`}
       >
-        <h2 className="text-sm font-semibold">New system</h2>
+        <h2 className="text-sm font-semibold">
+          {editingId ? "Edit system" : "New system"}
+        </h2>
         <input
           required
           placeholder="Name"
@@ -229,13 +275,25 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
           />
           Skip TLS verification
         </label>
-        <button
-          type="submit"
-          disabled={creating}
-          className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
-        >
-          {creating ? "Creating…" : "Create system"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex-1 rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+          >
+            {saving ? "Saving…" : editingId ? "Save changes" : "Create system"}
+          </button>
+          {editingId && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={cancelEdit}
+              className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 disabled:opacity-40"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );

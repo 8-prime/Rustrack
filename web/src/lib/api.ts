@@ -56,6 +56,17 @@ export function createSystem(body: CreateSystem): Promise<SystemInfo> {
   });
 }
 
+/** Body for `PUT /api/systems/{id}` — same shape as CreateSystem. */
+export type UpdateSystem = CreateSystem;
+
+export function updateSystem(id: string, body: UpdateSystem): Promise<SystemInfo> {
+  return request<SystemInfo>(`/api/systems/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export function deleteSystem(id: string): Promise<void> {
   return request<void>(`/api/systems/${encodeURIComponent(id)}`, {
     method: "DELETE",

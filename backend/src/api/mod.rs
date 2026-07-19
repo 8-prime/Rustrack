@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     Router,
-    routing::{delete, get, post},
+    routing::{get, post, put},
 };
 
 use crate::runtime::manager::RuntimesManager;
@@ -29,7 +29,10 @@ pub fn new() -> anyhow::Result<Router> {
             "/api/systems",
             get(systems::get_systems).post(systems::create_system),
         )
-        .route("/api/systems/{id}", delete(systems::delete_system))
+        .route(
+            "/api/systems/{id}",
+            put(systems::update_system).delete(systems::delete_system),
+        )
         .route("/api/systems/{id}/start", post(systems::start_system))
         .route("/api/systems/{id}/stop", post(systems::stop_system))
         .route("/api/systems/{id}/ws", get(ws::handler))

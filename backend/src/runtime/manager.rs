@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
 use crate::{
-    configuration::configuration::Configuration,
+    configuration::configuration::{Configuration, ConfigurationFields},
     mqtt::receiver::MqttReceiver,
     persistence::Persistence,
     runtime::{publisher::Publisher, state::StateManager},
@@ -70,14 +70,47 @@ pub struct RuntimesManager {
     pub runtimes: Arc<RwLock<HashMap<String, Runtime>>>,
 }
 
+/// Build the object graph backing a runtime. Shared by `add`, `update` and the
+/// startup restore, all of which need a receiver and publisher wired to a fresh
+/// state manager.
+fn build_runtime(config: Configuration, state: RuntimeState) -> Runtime {
+    let manager = Arc::new(StateManager::new());
+    let mqtt_receiver = MqttReceiver::new(config.clone(), manager.clone());
+    let publisher = Publisher::new(manager.clone());
+
+    Runtime {
+        runtime_id: config.id.clone(),
+        config,
+        state_manager: manager,
+        mqtt_receiver,
+        publisher,
+        state,
+    }
+}
+
 impl RuntimesManager {
     pub fn new() -> Result<Self> {
         let persistence = Persistence::new()?;
         persistence.init()?;
 
+        // Rehydrate persisted configurations. Restored runtimes come back
+        // Stopped, matching how a freshly created one behaves.
+        let restored: HashMap<String, Runtime> = persistence
+            .read_configurations()?
+            .into_iter()
+            .map(|config| {
+                (
+                    config.id.clone(),
+                    build_runtime(config, RuntimeState::Stopped),
+                )
+            })
+            .collect();
+
+        tracing::info!("restored {} runtime(s) from persistence", restored.len());
+
         Ok(Self {
             persistence: persistence,
-            runtimes: Arc::new(RwLock::new(HashMap::new())),
+            runtimes: Arc::new(RwLock::new(restored)),
         })
     }
 
@@ -100,26 +133,16 @@ impl RuntimesManager {
             bail!("runtime '{}' already exists", config.id);
         }
 
-        let manager = Arc::new(StateManager::new());
-        let mqtt_receiver = MqttReceiver::new(config.clone(), manager.clone());
-        let publisher = Publisher::new(manager.clone());
+        // Persist before touching memory so a failed write cannot leave a
+        // phantom runtime behind.
+        self.persistence.add_configuration(config.clone())?;
 
-        let runtime = Runtime {
-            runtime_id: config.id.clone(),
-            config: config.clone(),
-            state_manager: manager,
-            mqtt_receiver,
-            publisher,
-            state: RuntimeState::Stopped,
-        };
-
+        let runtime = build_runtime(config.clone(), RuntimeState::Stopped);
         let state = runtime.state.clone();
 
         runtimes.insert(config.id.clone(), runtime);
 
         tracing::info!("registered runtime '{}'", config.id);
-
-        //Todo insert into database
 
         Ok(SystemInfo {
             config,
@@ -127,9 +150,49 @@ impl RuntimesManager {
         })
     }
 
+    pub async fn update(&self, id: String, fields: ConfigurationFields) -> Result<SystemInfo> {
+        tracing::info!("update requested for runtime '{}'", id);
+        let mut runtimes = self.runtimes.write().await;
+
+        let Some(existing) = runtimes.get(&id) else {
+            tracing::warn!("update requested for unknown runtime '{}'", id);
+            bail!("runtime '{}' does not exist", id);
+        };
+
+        let config = existing.config.with_fields(fields);
+        let was_running = matches!(existing.state, RuntimeState::Running);
+
+        // Persist before tearing anything down, so a failed write leaves the
+        // current runtime untouched.
+        self.persistence.update_configuration(config.clone())?;
+
+        // MqttReceiver copies the connection settings at construction time and
+        // never re-reads them, so the runtime has to be rebuilt rather than
+        // mutated in place.
+        if was_running && let Some(runtime) = runtimes.get_mut(&id) {
+            runtime.stop().await?;
+        }
+
+        let mut runtime = build_runtime(config.clone(), RuntimeState::Stopped);
+        if was_running {
+            runtime.start().await?;
+        }
+
+        let state = runtime.state.clone();
+        runtimes.insert(id.clone(), runtime);
+
+        tracing::info!("updated runtime '{}'", id);
+
+        Ok(SystemInfo { config, state })
+    }
+
     pub async fn remove(&self, id: String) -> Result<()> {
         tracing::info!("removing runtime '{}'", id);
         let mut runtimes = self.runtimes.write().await;
+
+        // Delete from the database first; if that fails the in-memory runtime
+        // stays intact rather than silently reappearing on the next restart.
+        self.persistence.delete_configuration(id.clone())?;
 
         if let Some(runtime) = runtimes.get_mut(&id) {
             runtime.stop().await?;
