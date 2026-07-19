@@ -6,6 +6,7 @@ use tokio::sync::RwLock;
 use crate::{
     configuration::configuration::Configuration,
     mqtt::receiver::MqttReceiver,
+    persistence::Persistence,
     runtime::{publisher::Publisher, state::StateManager},
 };
 
@@ -33,7 +34,10 @@ pub struct SystemInfo {
 impl Runtime {
     pub async fn start(&mut self) -> anyhow::Result<()> {
         if matches!(self.state, RuntimeState::Running) {
-            tracing::debug!("runtime '{}' already running, ignoring start", self.runtime_id);
+            tracing::debug!(
+                "runtime '{}' already running, ignoring start",
+                self.runtime_id
+            );
             return Ok(());
         }
         tracing::info!("starting runtime '{}'", self.runtime_id);
@@ -46,7 +50,10 @@ impl Runtime {
 
     pub async fn stop(&mut self) -> anyhow::Result<()> {
         if matches!(self.state, RuntimeState::Stopped) {
-            tracing::debug!("runtime '{}' already stopped, ignoring stop", self.runtime_id);
+            tracing::debug!(
+                "runtime '{}' already stopped, ignoring stop",
+                self.runtime_id
+            );
             return Ok(());
         }
         tracing::info!("stopping runtime '{}'", self.runtime_id);
@@ -58,16 +65,20 @@ impl Runtime {
     }
 }
 
-#[derive(Clone)]
 pub struct RuntimesManager {
+    persistence: Persistence,
     pub runtimes: Arc<RwLock<HashMap<String, Runtime>>>,
 }
 
 impl RuntimesManager {
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Result<Self> {
+        let persistence = Persistence::new()?;
+        persistence.init()?;
+
+        Ok(Self {
+            persistence: persistence,
             runtimes: Arc::new(RwLock::new(HashMap::new())),
-        }
+        })
     }
 
     pub async fn system_configs(&self) -> anyhow::Result<Vec<SystemInfo>> {

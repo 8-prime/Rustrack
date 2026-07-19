@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let router = api::new();
+    let router = api::new()?;
 
     let addr = "0.0.0.0:3000";
     let listener = tokio::net::TcpListener::bind(&addr).await?;

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{
     Router,
     routing::{delete, get, post},
@@ -12,11 +14,11 @@ pub mod ws;
 
 #[derive(Clone)]
 pub struct WebApp {
-    pub runtimes_manager: RuntimesManager,
+    pub runtimes_manager: Arc<RuntimesManager>,
 }
 
-pub fn new() -> Router {
-    let runtimes_manager = RuntimesManager::new();
+pub fn new() -> anyhow::Result<Router> {
+    let runtimes_manager = Arc::new(RuntimesManager::new()?);
 
     let web_app_state = WebApp { runtimes_manager };
 
@@ -33,5 +35,5 @@ pub fn new() -> Router {
         .route("/api/systems/{id}/ws", get(ws::handler))
         .with_state(web_app_state);
 
-    app
+    Ok(app)
 }
