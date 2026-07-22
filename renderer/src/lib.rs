@@ -357,8 +357,9 @@ impl MapRenderer {
             .await
             .map_err(|e| JsValue::from_str(&format!("request_device: {e}")))?;
 
-        let config = Surface::get_default_config(&surface, &adapter, canvas.width(), canvas.height())
+        let mut config = Surface::get_default_config(&surface, &adapter, canvas.width(), canvas.height())
             .ok_or_else(|| JsValue::from_str("no default surface config"))?;
+        config.present_mode = wgpu::PresentMode::Immediate;
         surface.configure(&device, &config);
         let format = config.format;
 
