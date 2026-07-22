@@ -12,8 +12,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 use wgpu::util::DeviceExt;
 use wgpu::{DeviceDescriptor, InstanceDescriptor, Surface};
@@ -94,7 +94,12 @@ fn decode_frame(data: &[u8]) -> Option<Vec<Rec>> {
         let y = f32::from_le_bytes(data.get(off + 4..off + 8)?.try_into().ok()?);
         let theta = f32::from_le_bytes(data.get(off + 8..off + 12)?.try_into().ok()?);
         off += 12;
-        recs.push(Rec { serial, x, y, theta });
+        recs.push(Rec {
+            serial,
+            x,
+            y,
+            theta,
+        });
     }
     Some(recs)
 }
@@ -357,9 +362,9 @@ impl MapRenderer {
             .await
             .map_err(|e| JsValue::from_str(&format!("request_device: {e}")))?;
 
-        let mut config = Surface::get_default_config(&surface, &adapter, canvas.width(), canvas.height())
-            .ok_or_else(|| JsValue::from_str("no default surface config"))?;
-        config.present_mode = wgpu::PresentMode::Immediate;
+        let config =
+            Surface::get_default_config(&surface, &adapter, canvas.width(), canvas.height())
+                .ok_or_else(|| JsValue::from_str("no default surface config"))?;
         surface.configure(&device, &config);
         let format = config.format;
 
@@ -562,19 +567,21 @@ impl MapRenderer {
         let mut i = self.inner.borrow_mut();
         i.edge_count = (edges.len() / 4) as u32;
         i.edge_ibuf = (i.edge_count > 0).then(|| {
-            i.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("edge instances"),
-                contents: bytemuck::cast_slice(edges),
-                usage: wgpu::BufferUsages::VERTEX,
-            })
+            i.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("edge instances"),
+                    contents: bytemuck::cast_slice(edges),
+                    usage: wgpu::BufferUsages::VERTEX,
+                })
         });
         i.node_count = (nodes.len() / 2) as u32;
         i.node_ibuf = (i.node_count > 0).then(|| {
-            i.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("node instances"),
-                contents: bytemuck::cast_slice(nodes),
-                usage: wgpu::BufferUsages::VERTEX,
-            })
+            i.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("node instances"),
+                    contents: bytemuck::cast_slice(nodes),
+                    usage: wgpu::BufferUsages::VERTEX,
+                })
         });
         i.camera.seed_bounds(Bounds {
             min_x,
