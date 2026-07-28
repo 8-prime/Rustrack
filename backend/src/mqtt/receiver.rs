@@ -52,7 +52,11 @@ impl MqttReceiver {
             .dangerous()
             .set_certificate_verifier(Arc::new(NoCertificateVerification));
 
-        let mut opts = MqttOptions::new("Rustrack", self.mqtt_url.clone(), self.mqtt_port);
+        let mut opts = MqttOptions::new(
+            format!("Rustrack-{}", self.system_id.clone()),
+            self.mqtt_url.clone(),
+            self.mqtt_port,
+        );
         if let Some(user) = &self.mqtt_username
             && let Some(password) = &self.mqtt_password
         {
