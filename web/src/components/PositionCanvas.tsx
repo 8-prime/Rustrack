@@ -9,10 +9,17 @@ import {
   transformFromCamera,
 } from "../lib/mapView";
 import { AGV_MAX_PX, CANVAS, MAP_STATION_HALF } from "../lib/theme";
-import { StatusBadge, ViewToggle, type Status, type View } from "./viewControls";
+import {
+  BackToSystems,
+  StatusBadge,
+  ViewToggle,
+  type Status,
+  type View,
+} from "./viewControls";
 
 interface Props {
-  systemId: string | null;
+  systemId: string;
+  systemName: string;
   view: View;
   onViewChange: (view: View) => void;
 }
@@ -53,7 +60,7 @@ function loadSprite(renderer: MapRenderer) {
   };
 }
 
-export function PositionCanvas({ systemId, view, onViewChange }: Props) {
+export function PositionCanvas({ systemId, systemName, view, onViewChange }: Props) {
   const [status, setStatus] = useState<Status>("idle");
   const [robotCount, setRobotCount] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -129,7 +136,7 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
     mapRef.current = null;
     setHasMap(false);
     const renderer = rendererRef.current;
-    if (!systemId || !ready || !renderer) return;
+    if (!ready || !renderer) return;
 
     let cancelled = false;
     getMap(systemId)
@@ -165,11 +172,6 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
     renderer.reset_view();
     setAdjusted(false);
     setRobotCount(0);
-
-    if (!systemId) {
-      setStatus("idle");
-      return;
-    }
 
     setStatus("connecting");
     const ws = new WebSocket(systemWsUrl(systemId));
@@ -337,13 +339,14 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
     setAdjusted(false);
   };
 
-  const showOverlay = !systemId || (robotCount === 0 && !hasMap);
-  const showWaitingNote = !!systemId && robotCount === 0 && hasMap;
+  const showOverlay = robotCount === 0 && !hasMap;
+  const showWaitingNote = robotCount === 0 && hasMap;
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 border-b border-white/10 bg-[#1f2124] px-4 py-2 text-sm text-gray-200">
-        <span className="font-semibold">Published positions</span>
+        <BackToSystems />
+        <span className="font-semibold">{systemName || "(unnamed)"}</span>
         <StatusBadge status={status} />
         <span className="text-gray-400">{robotCount} robot(s)</span>
         {hasMap && mapRef.current && (
@@ -364,9 +367,8 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
           )}
           <button
             type="button"
-            disabled={!systemId}
             onClick={togglePaused}
-            className="rounded border border-white/15 px-2 py-1 text-xs text-gray-300 hover:bg-white/10 disabled:opacity-40"
+            className="rounded border border-white/15 px-2 py-1 text-xs text-gray-300 hover:bg-white/10"
           >
             {paused ? "Resume" : "Pause"}
           </button>
@@ -381,9 +383,7 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
         />
         {showOverlay && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-gray-400">
-            {!systemId
-              ? "Select a system to view its positions."
-              : "Waiting for frames… (start the system if it is stopped)"}
+            Waiting for frames… (start the system if it is stopped)
           </div>
         )}
         {showWaitingNote && (

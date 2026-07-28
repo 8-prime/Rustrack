@@ -1,5 +1,19 @@
+import { Link } from "react-router-dom";
+
 export type Status = "idle" | "connecting" | "connected" | "closed";
 export type View = "map" | "log";
+
+/** Return from a runtime view to the administration page. */
+export function BackToSystems() {
+  return (
+    <Link
+      to="/systems"
+      className="rounded border border-white/15 px-2 py-1 text-xs text-gray-300 hover:bg-white/10"
+    >
+      ← Systems
+    </Link>
+  );
+}
 
 export function StatusBadge({ status }: { status: Status }) {
   const styles: Record<Status, string> = {

@@ -1,16 +1,21 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use axum::{
     Router,
     extract::DefaultBodyLimit,
-    routing::{get, post, put},
+    routing::{any, get, post},
 };
+use tower_http::services::{ServeDir, ServeFile};
 
-use crate::runtime::manager::RuntimesManager;
+use crate::{api::error::AppError, runtime::manager::RuntimesManager};
 
 /// Upload ceiling for a LIF layout. Real layouts run to tens of megabytes;
 /// this leaves generous headroom while still bounding the request.
 const MAX_LIF_UPLOAD_BYTES: usize = 128 * 1024 * 1024;
+
+/// Where the built frontend lives, overridable with `RUSTRACK_WEB_DIR`. The
+/// relative default resolves from the repo root, same as the SQLite store.
+const DEFAULT_WEB_DIR: &str = "web/dist";
 
 pub mod error;
 pub mod health;
@@ -36,7 +41,9 @@ pub fn new() -> anyhow::Result<Router> {
         )
         .route(
             "/api/systems/{id}",
-            put(systems::update_system).delete(systems::delete_system),
+            get(systems::get_system)
+                .put(systems::update_system)
+                .delete(systems::delete_system),
         )
         .route("/api/systems/{id}/start", post(systems::start_system))
         .route("/api/systems/{id}/stop", post(systems::stop_system))
@@ -51,7 +58,19 @@ pub fn new() -> anyhow::Result<Router> {
         // limit applies.
         .route("/api/systems/{id}/map", get(systems::get_map))
         .route("/api/systems/{id}/ws", get(ws::handler))
+        // reject any unknown paths under /api/
+        .route(
+            "/api/{*rest}",
+            any(async || AppError::not_found(anyhow::anyhow!("unknown endpoint"))),
+        )
         .with_state(web_app_state);
+
+    let web_dir = PathBuf::from(
+        std::env::var("RUSTRACK_WEB_DIR").unwrap_or_else(|_| DEFAULT_WEB_DIR.to_string()),
+    );
+    let index = web_dir.join("index.html");
+    //fallback to spa for all non api paths
+    let app = app.fallback_service(ServeDir::new(web_dir).fallback(ServeFile::new(index)));
 
     Ok(app)
 }

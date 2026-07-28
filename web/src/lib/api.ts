@@ -117,6 +117,11 @@ export function listSystems(): Promise<SystemInfo[]> {
   return request<SystemInfo[]>("/api/systems");
 }
 
+/** Fetch a single system. Rejects with a 404 when the id is unknown. */
+export function getSystem(id: string): Promise<SystemInfo> {
+  return request<SystemInfo>(`/api/systems/${encodeURIComponent(id)}`);
+}
+
 export function createSystem(body: CreateSystem): Promise<SystemInfo> {
   return request<SystemInfo>("/api/systems", {
     method: "POST",
