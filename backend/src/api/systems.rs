@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     api::{WebApp, error::AppError},
     configuration::configuration::{Configuration, ConfigurationFields},
-    runtime::manager::SystemInfo,
+    runtime::{manager::SystemInfo, orders::OrderRecord},
 };
 
 // get systems
@@ -177,6 +177,22 @@ pub async fn get_map(
     // cloning the geometry, so it is worth keeping.
     let body = serde_json::to_vec(&*map)?;
     Ok(([(header::CONTENT_TYPE, "application/json")], body).into_response())
+}
+
+/// Fetch a device's recent orders, newest first.
+///
+/// An unknown device is an empty list rather than a 404: devices are only known
+/// from the messages they send, so one that has not reported yet is not an error.
+pub async fn get_device_orders(
+    State(state): State<WebApp>,
+    Path((id, serial)): Path<(String, String)>,
+) -> Result<Json<Vec<OrderRecord>>, AppError> {
+    let Some(orders) = state.runtimes_manager.device_orders(&id, &serial).await? else {
+        return Err(AppError::not_found(anyhow::anyhow!(
+            "system '{id}' does not exist"
+        )));
+    };
+    Ok(Json(orders))
 }
 
 /// Remove a system's stored layout.

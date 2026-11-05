@@ -8,6 +8,10 @@ use crate::{
     scenario::Scenario,
 };
 
+/// Nodes an AGV visits before its order is complete and it takes the next one.
+const NODES_PER_ORDER: u32 = 4;
+/// Pause between two orders, in seconds. Long enough for an idle state to be seen.
+const ORDER_DWELL_S: f64 = 2.0;
 /// How many edges of the planned path are released; the rest are the horizon.
 const RELEASED_EDGES: usize = 3;
 
@@ -25,7 +29,12 @@ pub struct AgvSimulator {
     scenario: Box<dyn Scenario>,
     battery_pct: f64,
     header_id: u32,
-    order_id: String,
+    order_number: u32,
+    order_update_id: i64,
+    /// Nodes reached so far in the current order.
+    order_progress: u32,
+    /// The order is done; the next one starts when the current dwell ends.
+    order_complete: bool,
     /// Last computed pose (x, y, theta) — kept so Idle can report a stable position.
     last_pose: (f64, f64, f64),
 }
@@ -54,7 +63,10 @@ impl AgvSimulator {
             scenario,
             battery_pct: 95.0,
             header_id: 0,
-            order_id: "sim-order-001".to_string(),
+            order_number: 1,
+            order_update_id: 0,
+            order_progress: 0,
+            order_complete: false,
             last_pose: pos,
         }
     }
@@ -76,6 +88,14 @@ impl AgvSimulator {
                     // Ask scenario for next target
                     if let Some(next) = self.scenario.next_target(&node_id, map) {
                         if let Some(edge_id) = map.edge_between(&node_id, &next) {
+                            // Only now is there a next order; an AGV with nowhere
+                            // to go keeps reporting the one it finished.
+                            if self.order_complete {
+                                self.order_number += 1;
+                                self.order_update_id = 0;
+                                self.order_progress = 0;
+                                self.order_complete = false;
+                            }
                             self.current_node = node_id;
                             self.motion = Motion::Moving {
                                 edge_id: edge_id.to_string(),
@@ -102,9 +122,18 @@ impl AgvSimulator {
                     let arrived_at = edge.to.clone();
                     self.current_node = arrived_at.clone();
                     self.last_pose = (map.nodes[&arrived_at].x, map.nodes[&arrived_at].y, 0.0);
+                    self.order_progress += 1;
+                    self.order_complete = self.order_progress >= NODES_PER_ORDER;
+                    if !self.order_complete {
+                        self.order_update_id += 1;
+                    }
                     self.motion = Motion::Waiting {
                         node_id: arrived_at,
-                        remaining_s: 0.5,
+                        remaining_s: if self.order_complete {
+                            ORDER_DWELL_S
+                        } else {
+                            0.5
+                        },
                     };
                 } else {
                     let (x, y) = map.position_on_edge(edge, *progress_m);
@@ -157,8 +186,8 @@ impl AgvSimulator {
             version: "2.1.0".to_string(),
             manufacturer: "Rustrack-Sim".to_string(),
             serial_number: self.serial.clone(),
-            order_id: self.order_id.clone(),
-            order_update_id: 0,
+            order_id: format!("{}-order-{:03}", self.serial, self.order_number),
+            order_update_id: self.order_update_id,
             last_node_id: self.current_node.clone(),
             last_node_sequence_id: 0,
             driving,
@@ -202,9 +231,16 @@ impl AgvSimulator {
     /// What is left of the order. As in VDA5050, a node leaves `nodeStates` once
     /// it is passed, so while driving the list starts with the edge in progress.
     fn build_path(&self, map: &NodeMap) -> (Vec<NodeState>, Vec<EdgeState>) {
+        // VDA5050 has an idle AGV report empty lists while it keeps the last orderId.
+        if self.order_complete || matches!(self.motion, Motion::Idle) {
+            return (Vec::new(), Vec::new());
+        }
+
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
         let mut sequence_id = 0;
+        // Nodes left in the order. The one being driven to has not been reached yet.
+        let mut nodes_left = (NODES_PER_ORDER - self.order_progress) as usize;
 
         let mut at = match &self.motion {
             Motion::Moving { edge_id, .. } => {
@@ -212,6 +248,7 @@ impl AgvSimulator {
                 edges.push(self.build_edge_state(edge_id, edge, 1, true));
                 nodes.push(self.build_node_state(&edge.to, 2, true, map));
                 sequence_id = 2;
+                nodes_left -= 1;
                 edge.to.as_str()
             }
             _ => {
@@ -220,11 +257,7 @@ impl AgvSimulator {
             }
         };
 
-        let upcoming = match self.motion {
-            Motion::Idle => Vec::new(),
-            _ => self.scenario.upcoming(),
-        };
-        for next in &upcoming {
+        for next in self.scenario.upcoming().iter().take(nodes_left) {
             let Some(edge_id) = map.edge_between(at, next) else {
                 break;
             };
@@ -316,4 +349,80 @@ fn wrap_angle(a: f64) -> f64 {
         a += 2.0 * PI;
     }
     a
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{map::tests::example_map, scenario::ScriptedScenario};
+
+    fn agv(route: &[&str], looping: bool, map: &NodeMap) -> AgvSimulator {
+        let route: Vec<String> = route.iter().map(|n| n.to_string()).collect();
+        let start = route[0].clone();
+        let scenario = Box::new(ScriptedScenario::new(route, looping));
+        AgvSimulator::new("AGV".to_string(), 1.2, start, scenario, map)
+    }
+
+    fn tick_until(agv: &mut AgvSimulator, map: &NodeMap, done: impl Fn(&State) -> bool) -> State {
+        for _ in 0..100_000 {
+            let state = agv.tick(0.1, map);
+            if done(&state) {
+                return state;
+            }
+        }
+        panic!("simulation never reached the expected state");
+    }
+
+    fn node_ids(state: &State) -> Vec<&str> {
+        state
+            .node_states
+            .iter()
+            .map(|n| n.node_id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn reported_path_ends_where_the_order_ends() {
+        let map = example_map();
+        let route = [
+            "N01", "N02", "N03", "N04", "N05", "N10", "N09", "N08", "N07", "N06", "N01",
+        ];
+        let mut agv = agv(&route, true, &map);
+
+        let state = tick_until(&mut agv, &map, |s| s.driving);
+        assert_eq!(state.order_id, "AGV-order-001");
+        assert_eq!(node_ids(&state), ["N02", "N03", "N04", "N05"]);
+        assert_eq!(state.edge_states.len(), 4);
+    }
+
+    #[test]
+    fn a_finished_order_goes_idle_then_gives_way_to_the_next() {
+        let map = example_map();
+        let route = [
+            "N01", "N02", "N03", "N04", "N05", "N10", "N09", "N08", "N07", "N06", "N01",
+        ];
+        let mut agv = agv(&route, true, &map);
+
+        let finished = tick_until(&mut agv, &map, |s| s.node_states.is_empty());
+        assert_eq!(finished.order_id, "AGV-order-001");
+        assert_eq!(finished.order_update_id, i64::from(NODES_PER_ORDER) - 1);
+        assert!(finished.edge_states.is_empty());
+
+        let next = tick_until(&mut agv, &map, |s| !s.node_states.is_empty());
+        assert_eq!(next.order_id, "AGV-order-002");
+        assert_eq!(next.order_update_id, 0);
+    }
+
+    #[test]
+    fn an_agv_with_nowhere_to_go_keeps_its_finished_order() {
+        let map = example_map();
+        let mut agv = agv(&["N01", "N02", "N03", "N04", "N05"], false, &map);
+
+        tick_until(&mut agv, &map, |s| s.node_states.is_empty());
+        for _ in 0..100 {
+            let state = agv.tick(0.1, &map);
+            assert_eq!(state.order_id, "AGV-order-001");
+            assert!(state.node_states.is_empty());
+        }
+    }
 }

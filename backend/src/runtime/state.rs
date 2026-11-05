@@ -8,7 +8,13 @@ use shared::vda5050::{
     visualization::{self, Visualization},
 };
 
-use crate::{interpolation, runtime::route::PlannedPath};
+use crate::{
+    interpolation,
+    runtime::{
+        orders::{OrderHistory, OrderRecord},
+        route::PlannedPath,
+    },
+};
 
 /// Pose of the robot in world coordinates.
 #[derive(Clone)]
@@ -128,13 +134,27 @@ impl RobotState {
 
 pub struct StateManager {
     states: RwLock<HashMap<String, Arc<RobotState>>>,
+    /// Kept apart from `states` so API reads never contend with the interpolation
+    /// snapshot, and so `RobotState` stays cheap to clone.
+    orders: RwLock<HashMap<String, OrderHistory>>,
 }
 
 impl StateManager {
     pub fn new() -> Self {
         Self {
             states: RwLock::new(HashMap::new()),
+            orders: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// The device's most recent orders, newest first. Empty for a device that
+    /// has not reported an order.
+    pub fn orders(&self, serial: &str) -> anyhow::Result<Vec<OrderRecord>> {
+        let orders = self
+            .orders
+            .read()
+            .map_err(|_| anyhow::anyhow!("orders lock poisoned"))?;
+        Ok(orders.get(serial).map(OrderHistory::records).unwrap_or_default())
     }
 
     /// Snapshot the current states and compute a fresh interpolated pose for each
@@ -181,6 +201,13 @@ impl StateManager {
     /// snapshot, so the whole `vda_state` is replaced.
     pub fn update_state(&self, id: String, state: State) -> anyhow::Result<()> {
         let timestamp = DateTime::parse_from_rfc3339(&state.timestamp)?.with_timezone(&Utc);
+
+        self.orders
+            .write()
+            .map_err(|_| anyhow::anyhow!("orders lock poisoned"))?
+            .entry(id.clone())
+            .or_default()
+            .observe(&state, timestamp);
 
         let position = state.agv_position.map(Position::from);
         let velocity = state.velocity.map(Velocity::from);

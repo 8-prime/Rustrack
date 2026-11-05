@@ -54,6 +54,10 @@ pub fn new(data_dir: &Path) -> anyhow::Result<Router> {
         // limit applies.
         .route("/api/systems/{id}/map", get(systems::get_map))
         .route("/api/systems/{id}/ws", get(ws::handler))
+        .route(
+            "/api/systems/{id}/devices/{serial}/orders",
+            get(systems::get_device_orders),
+        )
         // reject any unknown paths under /api/
         .route(
             "/api/{*rest}",
