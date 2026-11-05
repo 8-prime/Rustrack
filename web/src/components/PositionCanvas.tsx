@@ -8,6 +8,7 @@ import {
   project,
   transformFromCamera,
 } from "../lib/mapView";
+import { selectRouteMessage, type RouteMessage } from "../lib/protocol";
 import { AGV_LABEL_MAX_GAP_PX, CANVAS, MAP_STATION_HALF } from "../lib/theme";
 import { DevicePanel } from "./DevicePanel";
 import {
@@ -73,6 +74,10 @@ export function PositionCanvas({ systemId, systemName, view, onViewChange }: Pro
   const [serials, setSerials] = useState<string[]>([]);
   // Mirrors the renderer's follow target, which a drag or Fit can also clear.
   const [followed, setFollowed] = useState<string | null>(null);
+  // The robot whose route is drawn. Separate from `followed`, which a drag ends.
+  const [selected, setSelected] = useState<string | null>(null);
+  // Whether its route has any geometry; null until the backend has answered.
+  const [hasRoute, setHasRoute] = useState<boolean | null>(null);
   // Gates the map/ws/event effects until the async renderer is up.
   const [ready, setReady] = useState(false);
 
@@ -83,6 +88,9 @@ export function PositionCanvas({ systemId, systemName, view, onViewChange }: Pro
   // The layout is kept on the JS side too, so the overlay can draw station
   // markers and labels (the GPU layer only draws edges/nodes/sprites).
   const mapRef = useRef<MapView | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
 
   // --- create the renderer once, size it, load the sprite ---
   useEffect(() => {
@@ -180,17 +188,36 @@ export function PositionCanvas({ systemId, systemName, view, onViewChange }: Pro
     setAdjusted(false);
     setRobotCount(0);
     setSerials([]);
+    setSelected(null);
 
     setStatus("connecting");
     const ws = new WebSocket(systemWsUrl(systemId));
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => setStatus("connected");
+    wsRef.current = ws;
+    ws.onopen = () => {
+      setStatus("connected");
+      if (selectedRef.current) ws.send(selectRouteMessage(selectedRef.current));
+    };
     ws.onclose = () => setStatus("closed");
     ws.onerror = () => setStatus("closed");
     ws.onmessage = (ev) => {
-      if (!(ev.data instanceof ArrayBuffer)) return;
       const renderer = rendererRef.current;
       if (!renderer) return;
+
+      if (typeof ev.data === "string") {
+        const route = JSON.parse(ev.data) as RouteMessage;
+        // Could have been sent just before the selection changed.
+        if (route.serial !== selectedRef.current) return;
+        renderer.set_route(
+          route.serial,
+          new Float32Array(route.points.flat()),
+          route.currentPoints,
+          route.releasedPoints,
+        );
+        setHasRoute(route.points.length > 0);
+        return;
+      }
+
       renderer.push_frame(new Uint8Array(ev.data), performance.now());
 
       const names = renderer.frame_serials().sort(serialOrder.compare);
@@ -201,8 +228,19 @@ export function PositionCanvas({ systemId, systemName, view, onViewChange }: Pro
       );
     };
 
-    return () => ws.close();
+    return () => {
+      wsRef.current = null;
+      ws.close();
+    };
   }, [systemId, ready]);
+
+  // --- the selected robot's route: drop the old one, ask for the new one ---
+  useEffect(() => {
+    rendererRef.current?.clear_route();
+    setHasRoute(null);
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) ws.send(selectRouteMessage(selected));
+  }, [selected, ready]);
 
   // --- pan / zoom: forward pointer + wheel to the renderer's camera ---
   useEffect(() => {
@@ -409,8 +447,17 @@ export function PositionCanvas({ systemId, systemName, view, onViewChange }: Pro
         <DevicePanel
           serials={serials}
           followed={followed}
-          onZoomTo={(serial) => rendererRef.current?.zoom_to(serial)}
-          onToggleFollow={(serial) => rendererRef.current?.toggle_follow(serial)}
+          selected={selected}
+          hasRoute={hasRoute}
+          onZoomTo={(serial) => {
+            setSelected(serial);
+            rendererRef.current?.zoom_to(serial);
+          }}
+          onToggleFollow={(serial) => {
+            setSelected(serial);
+            rendererRef.current?.toggle_follow(serial);
+          }}
+          onClearSelection={() => setSelected(null)}
         />
         {showOverlay && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-gray-400">

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::nurbs::{self, NurbsCurve};
+
 /// all encompassing state of the AGV.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -161,7 +163,7 @@ pub struct BatteryState {
     pub reach: Option<f64>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EdgeState {
     /// Additional information on the edge.
@@ -184,7 +186,7 @@ pub struct EdgeState {
 /// Implementation of the Order message.
 /// Trajectory segments reach from the point, where the AGV starts to enter the edge to the
 /// point where it reports that the next node was traversed.
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Trajectory {
     /// List of JSON controlPoint objects defining the control points of the NURBS, which
@@ -198,7 +200,26 @@ pub struct Trajectory {
     pub knot_vector: Vec<f64>,
 }
 
-#[derive(Serialize, Deserialize)]
+impl Trajectory {
+    /// This trajectory as an evaluable curve.
+    pub fn curve(&self) -> NurbsCurve {
+        NurbsCurve {
+            degree: self.degree.max(0) as usize,
+            knots: self.knot_vector.clone(),
+            control_points: self
+                .control_points
+                .iter()
+                .map(|cp| nurbs::ControlPoint {
+                    x: cp.x,
+                    y: cp.y,
+                    weight: cp.weight.unwrap_or(1.0),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(PartialEq, Serialize, Deserialize)]
 pub struct ControlPoint {
     /// The weight, with which this control point pulls on the curve.
     /// When not defined, the default will be 1.0.
@@ -356,7 +377,7 @@ pub enum MapStatus {
     Enabled,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeState {
     /// Additional information on the node.
@@ -379,7 +400,7 @@ pub struct NodeState {
 /// AGV).
 /// Optional:Master control has this information. Can be sent additionally, e.g., for
 /// debugging purposes.
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodePosition {
     pub map_id: String,
