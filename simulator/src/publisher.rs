@@ -1,6 +1,6 @@
 use anyhow::Result;
 use rumqttc::{AsyncClient, EventLoop, MqttOptions, QoS};
-use rustrack_shared::vda5050::state::State;
+use rustrack_shared::{MQTT_MAX_PACKET_BYTES, vda5050::state::State};
 
 pub struct Publisher {
     client: AsyncClient,
@@ -11,6 +11,7 @@ impl Publisher {
     pub async fn connect(host: &str, port: u16, topic_prefix: String) -> Result<(Self, EventLoop)> {
         let mut opts = MqttOptions::new("rustrack-sim-publisher", host, port);
         opts.set_keep_alive(std::time::Duration::from_secs(30));
+        opts.set_max_packet_size(MQTT_MAX_PACKET_BYTES, MQTT_MAX_PACKET_BYTES);
 
         let (client, eventloop) = AsyncClient::new(opts, 128);
         Ok((

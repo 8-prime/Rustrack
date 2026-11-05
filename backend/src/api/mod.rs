@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use axum::{
     Router,
@@ -15,6 +15,7 @@ const MAX_LIF_UPLOAD_BYTES: usize = 128 * 1024 * 1024;
 pub mod error;
 pub mod health;
 pub mod systems;
+pub mod web;
 pub mod ws;
 
 #[derive(Clone)]
@@ -22,8 +23,8 @@ pub struct WebApp {
     pub runtimes_manager: Arc<RuntimesManager>,
 }
 
-pub fn new() -> anyhow::Result<Router> {
-    let runtimes_manager = Arc::new(RuntimesManager::new()?);
+pub fn new(data_dir: &Path) -> anyhow::Result<Router> {
+    let runtimes_manager = Arc::new(RuntimesManager::new(data_dir)?);
 
     let web_app_state = WebApp { runtimes_manager };
 
@@ -51,6 +52,8 @@ pub fn new() -> anyhow::Result<Router> {
         // limit applies.
         .route("/api/systems/{id}/map", get(systems::get_map))
         .route("/api/systems/{id}/ws", get(ws::handler))
+        // Everything else is the embedded frontend.
+        .fallback(get(web::handler))
         .with_state(web_app_state);
 
     Ok(app)

@@ -1,19 +1,24 @@
-use std::sync::Mutex;
+use std::{path::Path, sync::Mutex};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use rusqlite::Connection;
 use shared::lif::LifSummary;
 
 use crate::configuration::configuration::Configuration;
+
+const DATABASE_FILE: &str = "runtimes_store.db";
 
 pub struct Persistence {
     conn: Mutex<Connection>,
 }
 
 impl Persistence {
-    pub fn new() -> Result<Persistence> {
-        let path = "./runtimes_store.db";
-        let conn = Connection::open(path)?;
+    pub fn new(data_dir: &Path) -> Result<Persistence> {
+        std::fs::create_dir_all(data_dir)
+            .with_context(|| format!("creating data directory {}", data_dir.display()))?;
+        let path = data_dir.join(DATABASE_FILE);
+        let conn = Connection::open(&path)
+            .with_context(|| format!("opening database {}", path.display()))?;
 
         Ok(Persistence {
             conn: Mutex::new(conn),

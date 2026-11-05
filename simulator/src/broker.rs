@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rumqttd::{Broker, Config};
+use rustrack_shared::MQTT_MAX_PACKET_BYTES;
 use std::net::SocketAddr;
 
 /// Start the embedded rumqttd broker. Spawns the broker in a background thread.
@@ -25,7 +26,7 @@ next_connection_delay_ms = 1
 
 [v4.mqtt.connections]
 connection_timeout_ms = 5000
-max_payload_size = 262144
+max_payload_size = {MQTT_MAX_PACKET_BYTES}
 max_inflight_count = 500
 dynamic_filters = true
 "#

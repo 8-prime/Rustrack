@@ -3,7 +3,7 @@ use bytes::Bytes;
 use chrono::Utc;
 use serde::Serialize;
 use shared::lif::{Lif, LifSummary, MapView};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 use tokio::sync::RwLock;
 
 use crate::{
@@ -112,8 +112,8 @@ fn build_runtime(
 }
 
 impl RuntimesManager {
-    pub fn new() -> Result<Self> {
-        let persistence = Persistence::new()?;
+    pub fn new(data_dir: &Path) -> Result<Self> {
+        let persistence = Persistence::new(data_dir)?;
         persistence.init()?;
 
         let mut summaries: HashMap<String, LifSummary> =
