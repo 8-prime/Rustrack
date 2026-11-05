@@ -1,4 +1,4 @@
-// Three instanced pipelines share one camera uniform. Every pipeline draws the
+// The instanced pipelines share one camera uniform. Every pipeline draws the
 // same [-1, 1] unit quad (4 verts, 6 indices); each vertex shader reinterprets
 // the corner. Geometry lives in world metres in the instance buffers and is
 // never rebuilt on zoom -- only `u.view_proj` changes.
@@ -10,7 +10,7 @@ struct Uniforms {
     viewport: vec2<f32>,
     // sizes.x = edge width (CSS px), sizes.y = node radius (CSS px).
     sizes: vec2<f32>,
-    // misc.x = devicePixelRatio.
+    // misc.x = devicePixelRatio, misc.y = route width (CSS px).
     misc: vec2<f32>,
     _pad: vec2<f32>,
 };
@@ -23,18 +23,11 @@ fn px_to_clip(offset_px: vec2<f32>) -> vec2<f32> {
     return offset_px * 2.0 / u.viewport;
 }
 
-// ---------------------------------------------------------------- edges
-
-struct EdgeVsIn {
-    @location(0) corner: vec2<f32>, // [-1, 1] quad
-    @location(1) a: vec2<f32>,      // segment start, world metres
-    @location(2) b: vec2<f32>,      // segment end, world metres
-};
-
-@vertex
-fn vs_edge(in: EdgeVsIn) -> @builtin(position) vec4<f32> {
-    let ca = u.view_proj * vec4<f32>(in.a, 0.0, 1.0);
-    let cb = u.view_proj * vec4<f32>(in.b, 0.0, 1.0);
+// Expand a [-1, 1] quad corner along the segment a-b into a line `width_px` CSS
+// px wide, constant on screen.
+fn segment_vertex(corner: vec2<f32>, a: vec2<f32>, b: vec2<f32>, width_px: f32) -> vec4<f32> {
+    let ca = u.view_proj * vec4<f32>(a, 0.0, 1.0);
+    let cb = u.view_proj * vec4<f32>(b, 0.0, 1.0);
 
     // Direction of the segment in pixel space (w == 1 here, so xy is clip/NDC).
     let dir_px = (cb.xy - ca.xy) * u.viewport;
@@ -47,11 +40,24 @@ fn vs_edge(in: EdgeVsIn) -> @builtin(position) vec4<f32> {
     }
 
     // corner.x in [-1, 1] -> t in [0, 1] along the segment; corner.y is the side.
-    let t = in.corner.x * 0.5 + 0.5;
+    let t = corner.x * 0.5 + 0.5;
     let base = mix(ca.xy, cb.xy, t);
-    let half_w = u.sizes.x * u.misc.x * 0.5;
-    let offset = px_to_clip(normal * half_w * in.corner.y);
+    let half_w = width_px * u.misc.x * 0.5;
+    let offset = px_to_clip(normal * half_w * corner.y);
     return vec4<f32>(base + offset, 0.0, 1.0);
+}
+
+// ---------------------------------------------------------------- edges
+
+struct EdgeVsIn {
+    @location(0) corner: vec2<f32>, // [-1, 1] quad
+    @location(1) a: vec2<f32>,      // segment start, world metres
+    @location(2) b: vec2<f32>,      // segment end, world metres
+};
+
+@vertex
+fn vs_edge(in: EdgeVsIn) -> @builtin(position) vec4<f32> {
+    return segment_vertex(in.corner, in.a, in.b, u.sizes.x);
 }
 
 @fragment
@@ -84,6 +90,33 @@ fn fs_node(in: NodeVsOut) -> @location(0) vec4<f32> {
     let alpha = 1.0 - smoothstep(1.0 - aa, 1.0, d);
     // CANVAS.node (#5d646e), straight alpha for the blend pipeline.
     return vec4<f32>(0.365, 0.392, 0.431, alpha);
+}
+
+// ---------------------------------------------------------------- route
+
+struct RouteVsIn {
+    @location(0) corner: vec2<f32>, // [-1, 1] quad
+    @location(1) a: vec2<f32>,      // segment start, world metres
+    @location(2) b: vec2<f32>,      // segment end, world metres
+    @location(3) color: vec4<f32>,  // straight alpha
+};
+
+struct RouteVsOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+
+@vertex
+fn vs_route(in: RouteVsIn) -> RouteVsOut {
+    var out: RouteVsOut;
+    out.pos = segment_vertex(in.corner, in.a, in.b, u.misc.y);
+    out.color = in.color;
+    return out;
+}
+
+@fragment
+fn fs_route(in: RouteVsOut) -> @location(0) vec4<f32> {
+    return in.color;
 }
 
 // ---------------------------------------------------------------- sprites

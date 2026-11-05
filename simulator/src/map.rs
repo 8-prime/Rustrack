@@ -161,13 +161,13 @@ impl NodeMap {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use rustrack_shared::lif::{validate, Lif};
     use rustrack_shared::nurbs::{open_uniform_knots, ControlPoint};
 
     /// Build the map from the shipped example, the way the binary does.
-    fn example_map() -> NodeMap {
+    pub(crate) fn example_map() -> NodeMap {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/warehouse.lif");
         let raw = std::fs::read_to_string(path).expect("example layout should exist");
         let lif: Lif = serde_json::from_str(&raw).expect("example layout should be valid LIF");

@@ -7,6 +7,7 @@
 //! draw the text/grid overlay on a second stacked canvas.
 
 mod camera;
+mod route;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -19,11 +20,14 @@ use wgpu::util::DeviceExt;
 use wgpu::{DeviceDescriptor, InstanceDescriptor, Surface};
 
 use camera::{Bounds, Camera, Transform};
+use route::{Route, Segment};
 
 // Line/node sizes in CSS px, matching `theme.ts` (MAP_NODE_RADIUS) and the old
 // 1.5px edge stroke. Multiplied by devicePixelRatio in the shader.
 const EDGE_WIDTH_PX: f32 = 1.5;
 const NODE_RADIUS_PX: f32 = 2.5;
+// Twice the track, so the route reads as an overlay on it.
+const ROUTE_WIDTH_PX: f32 = 3.0;
 
 // CANVAS.bg (#1b1d21).
 const CLEAR: wgpu::Color = wgpu::Color {
@@ -36,6 +40,9 @@ const CLEAR: wgpu::Color = wgpu::Color {
 // Bounds on the self-tuned interval, mirroring the TS render loop.
 const MIN_INTERVAL_MS: f64 = 1.0;
 const MAX_INTERVAL_MS: f64 = 2000.0;
+
+// Enough for a typical route without growing the buffer.
+const ROUTE_INITIAL_CAP: u32 = 256;
 
 /// One AGV pose within a frame.
 struct Rec {
@@ -51,7 +58,7 @@ struct Frame {
     time: f64,
 }
 
-/// The camera uniform, shared by all three pipelines. `repr(C)` + padding to a
+/// The camera uniform, shared by every pipeline. `repr(C)` + padding to a
 /// 16-byte multiple so it matches the WGSL `Uniforms` layout.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -145,6 +152,7 @@ struct Inner {
 
     edge_pipeline: wgpu::RenderPipeline,
     node_pipeline: wgpu::RenderPipeline,
+    route_pipeline: wgpu::RenderPipeline,
     sprite_pipeline: wgpu::RenderPipeline,
 
     // Static map geometry, uploaded once by `set_map`.
@@ -160,6 +168,12 @@ struct Inner {
     sprite_bgl: wgpu::BindGroupLayout,
     sprite_sampler: wgpu::Sampler,
     sprite_bg: Option<wgpu::BindGroup>,
+
+    // The selected robot's route, re-cut to its pose each frame.
+    route: Option<Route>,
+    route_ibuf: wgpu::Buffer,
+    route_cap: u32,
+    route_count: u32,
 
     camera: Camera,
     /// The robot the camera keeps centred, by serial. It outlives the robot
@@ -234,18 +248,39 @@ impl Inner {
                 .write_buffer(&self.sprite_ibuf, 0, bytemuck::cast_slice(&instances));
         }
 
+        self.update_route(f);
+
         // --- camera uniform ---
         let u = Uniforms {
             view_proj: t.view_proj(),
             viewport: [self.config.width as f32, self.config.height as f32],
             sizes: [EDGE_WIDTH_PX, NODE_RADIUS_PX],
-            misc: [self.dpr, 0.0],
+            misc: [self.dpr, ROUTE_WIDTH_PX],
             _pad: [0.0, 0.0],
         };
         self.queue
             .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&u));
 
         self.render();
+    }
+
+    /// Rewrite the route instances from where the robot is drawn this frame.
+    fn update_route(&mut self, f: f32) {
+        let segments: Vec<Segment> = self.route.as_ref().map_or_else(Vec::new, |route| {
+            let robot = self
+                .current(&route.serial)
+                .map(|r| blended_pose(r, &self.prev_map, f))
+                .filter(|(x, y, _)| x.is_finite() && y.is_finite())
+                .map(|(x, y, _)| [x, y]);
+            route.segments(robot)
+        });
+
+        self.route_count = segments.len() as u32;
+        self.ensure_route_cap(self.route_count);
+        if !segments.is_empty() {
+            self.queue
+                .write_buffer(&self.route_ibuf, 0, bytemuck::cast_slice(&segments));
+        }
     }
 
     /// The robot with this serial in the newest frame.
@@ -287,6 +322,16 @@ impl Inner {
             mapped_at_creation: false,
         });
         self.sprite_cap = cap;
+    }
+
+    /// Grow the route instance buffer when a route outpaces it.
+    fn ensure_route_cap(&mut self, n: u32) {
+        if n <= self.route_cap {
+            return;
+        }
+        let cap = n.next_power_of_two();
+        self.route_ibuf = route_buffer(&self.device, cap);
+        self.route_cap = cap;
     }
 
     fn clear_only(&mut self) {
@@ -349,6 +394,11 @@ impl Inner {
                     rp.set_vertex_buffer(1, buf.slice(..));
                     rp.draw_indexed(0..6, 0, 0..self.node_count);
                 }
+            }
+            if self.route_count > 0 {
+                rp.set_pipeline(&self.route_pipeline);
+                rp.set_vertex_buffer(1, self.route_ibuf.slice(..));
+                rp.draw_indexed(0..6, 0, 0..self.route_count);
             }
             if let Some(bg) = &self.sprite_bg {
                 if self.sprite_count > 0 {
@@ -499,6 +549,8 @@ impl MapRenderer {
 
         let edge_attrs = wgpu::vertex_attr_array![1 => Float32x2, 2 => Float32x2];
         let node_attrs = wgpu::vertex_attr_array![1 => Float32x2];
+        let route_attrs =
+            wgpu::vertex_attr_array![1 => Float32x2, 2 => Float32x2, 3 => Float32x4];
         let sprite_attrs = wgpu::vertex_attr_array![1 => Float32x4];
 
         let opaque = make_pipeline(
@@ -533,6 +585,22 @@ impl MapRenderer {
             ],
             wgpu::BlendState::ALPHA_BLENDING,
         );
+        let route_pipeline = make_pipeline(
+            &device,
+            &shader,
+            "route",
+            format,
+            &[Some(&uniform_bgl)],
+            &[
+                Some(corner_layout.clone()),
+                Some(wgpu::VertexBufferLayout {
+                    array_stride: size_of::<Segment>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &route_attrs,
+                }),
+            ],
+            wgpu::BlendState::ALPHA_BLENDING,
+        );
         let sprite_pipeline = make_pipeline(
             &device,
             &shader,
@@ -557,6 +625,8 @@ impl MapRenderer {
             mapped_at_creation: false,
         });
 
+        let route_ibuf = route_buffer(&device, ROUTE_INITIAL_CAP);
+
         let inner = Inner {
             surface,
             device,
@@ -570,6 +640,7 @@ impl MapRenderer {
             quad_ibuf,
             edge_pipeline: opaque,
             node_pipeline,
+            route_pipeline,
             sprite_pipeline,
             edge_ibuf: None,
             edge_count: 0,
@@ -581,6 +652,10 @@ impl MapRenderer {
             sprite_bgl,
             sprite_sampler,
             sprite_bg: None,
+            route: None,
+            route_ibuf,
+            route_cap: ROUTE_INITIAL_CAP,
+            route_count: 0,
             camera: Camera::new(),
             followed: None,
             paused: false,
@@ -715,6 +790,24 @@ impl MapRenderer {
         i.cur = Some(Frame { recs, time: now });
     }
 
+    /// Show a robot's remaining route, `[x, y, ...]` in world metres and driving
+    /// order. The first `current_points` reach its next node and the first
+    /// `released_points` are its base; the rest draw as the horizon.
+    pub fn set_route(
+        &self,
+        serial: String,
+        points: &[f32],
+        current_points: u32,
+        released_points: u32,
+    ) {
+        self.inner.borrow_mut().route =
+            Some(Route::new(serial, points, current_points, released_points));
+    }
+
+    pub fn clear_route(&self) {
+        self.inner.borrow_mut().route = None;
+    }
+
     pub fn wheel(&self, px: f32, py: f32, delta_y: f32) {
         let mut i = self.inner.borrow_mut();
         if i.followed.is_some() {
@@ -829,6 +922,15 @@ impl MapRenderer {
     pub fn destroy(&self) {
         self.inner.borrow_mut().running = false;
     }
+}
+
+fn route_buffer(device: &wgpu::Device, cap: u32) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("route instances"),
+        size: cap as u64 * size_of::<Segment>() as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
 }
 
 /// The single colour attachment every pass uses: clear to the bg, then store.

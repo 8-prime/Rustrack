@@ -12,6 +12,8 @@ use crate::{
 const NODES_PER_ORDER: u32 = 4;
 /// Pause between two orders, in seconds. Long enough for an idle state to be seen.
 const ORDER_DWELL_S: f64 = 2.0;
+/// How many edges of the planned path are released; the rest are the horizon.
+const RELEASED_EDGES: usize = 3;
 
 enum Motion {
     Idle,
@@ -83,15 +85,17 @@ impl AgvSimulator {
                 *remaining_s -= dt;
                 if *remaining_s <= 0.0 {
                     let node_id = node_id.clone();
-                    if self.order_complete {
-                        self.order_number += 1;
-                        self.order_update_id = 0;
-                        self.order_progress = 0;
-                        self.order_complete = false;
-                    }
                     // Ask scenario for next target
                     if let Some(next) = self.scenario.next_target(&node_id, map) {
                         if let Some(edge_id) = map.edge_between(&node_id, &next) {
+                            // Only now is there a next order; an AGV with nowhere
+                            // to go keeps reporting the one it finished.
+                            if self.order_complete {
+                                self.order_number += 1;
+                                self.order_update_id = 0;
+                                self.order_progress = 0;
+                                self.order_complete = false;
+                            }
                             self.current_node = node_id;
                             self.motion = Motion::Moving {
                                 edge_id: edge_id.to_string(),
@@ -125,7 +129,11 @@ impl AgvSimulator {
                     }
                     self.motion = Motion::Waiting {
                         node_id: arrived_at,
-                        remaining_s: if self.order_complete { ORDER_DWELL_S } else { 0.5 },
+                        remaining_s: if self.order_complete {
+                            ORDER_DWELL_S
+                        } else {
+                            0.5
+                        },
                     };
                 } else {
                     let (x, y) = map.position_on_edge(edge, *progress_m);
@@ -143,7 +151,7 @@ impl AgvSimulator {
         let (x, y, theta) = self.last_pose;
         let driving = matches!(self.motion, Motion::Moving { .. });
 
-        let (distance_since_last_node, edge_states, velocity) = match &self.motion {
+        let (distance_since_last_node, velocity) = match &self.motion {
             Motion::Moving {
                 edge_id,
                 progress_m,
@@ -158,10 +166,8 @@ impl AgvSimulator {
                 let h0 = map.heading_on_edge(edge, *progress_m);
                 let h1 = map.heading_on_edge(edge, (*progress_m + eps).min(edge.length));
                 let omega = wrap_angle(h1 - h0) / eps * speed;
-                let es = self.build_edge_state(edge_id, edge);
                 (
                     Some(*progress_m),
-                    vec![es],
                     Some(Velocity {
                         vx: Some(speed),
                         vy: Some(0.0),
@@ -169,28 +175,10 @@ impl AgvSimulator {
                     }),
                 )
             }
-            _ => (None, vec![], None),
+            _ => (None, None),
         };
 
-        // Report the current node in nodeStates, unless the order is over: VDA5050
-        // has an idle AGV report an empty list while it keeps the last orderId.
-        let order_over = self.order_complete || matches!(self.motion, Motion::Idle);
-        let node_states = if order_over {
-            vec![]
-        } else {
-            vec![NodeState {
-                node_id: self.current_node.clone(),
-                sequence_id: 0,
-                released: true,
-                node_position: map.nodes.get(&self.current_node).map(|n| NodePosition {
-                    x: n.x,
-                    y: n.y,
-                    theta: Some(n.theta.unwrap_or(0.0)),
-                    map_id: map.map_id.clone(),
-                }),
-                node_description: None,
-            }]
-        };
+        let (node_states, edge_states) = self.build_path(map);
 
         State {
             header_id: self.header_id as i64,
@@ -240,7 +228,78 @@ impl AgvSimulator {
         }
     }
 
-    fn build_edge_state(&self, edge_id: &str, edge: &Edge) -> EdgeState {
+    /// What is left of the order. As in VDA5050, a node leaves `nodeStates` once
+    /// it is passed, so while driving the list starts with the edge in progress.
+    fn build_path(&self, map: &NodeMap) -> (Vec<NodeState>, Vec<EdgeState>) {
+        // VDA5050 has an idle AGV report empty lists while it keeps the last orderId.
+        if self.order_complete || matches!(self.motion, Motion::Idle) {
+            return (Vec::new(), Vec::new());
+        }
+
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        let mut sequence_id = 0;
+        // Nodes left in the order. The one being driven to has not been reached yet.
+        let mut nodes_left = (NODES_PER_ORDER - self.order_progress) as usize;
+
+        let mut at = match &self.motion {
+            Motion::Moving { edge_id, .. } => {
+                let edge = &map.edges[edge_id.as_str()];
+                edges.push(self.build_edge_state(edge_id, edge, 1, true));
+                nodes.push(self.build_node_state(&edge.to, 2, true, map));
+                sequence_id = 2;
+                nodes_left -= 1;
+                edge.to.as_str()
+            }
+            _ => {
+                nodes.push(self.build_node_state(&self.current_node, 0, true, map));
+                self.current_node.as_str()
+            }
+        };
+
+        for next in self.scenario.upcoming().iter().take(nodes_left) {
+            let Some(edge_id) = map.edge_between(at, next) else {
+                break;
+            };
+            let released = edges.len() < RELEASED_EDGES;
+            let edge = &map.edges[edge_id];
+            edges.push(self.build_edge_state(edge_id, edge, sequence_id + 1, released));
+            nodes.push(self.build_node_state(next, sequence_id + 2, released, map));
+            sequence_id += 2;
+            at = next;
+        }
+
+        (nodes, edges)
+    }
+
+    fn build_node_state(
+        &self,
+        node_id: &str,
+        sequence_id: i64,
+        released: bool,
+        map: &NodeMap,
+    ) -> NodeState {
+        NodeState {
+            node_id: node_id.to_string(),
+            sequence_id,
+            released,
+            node_position: map.nodes.get(node_id).map(|n| NodePosition {
+                x: n.x,
+                y: n.y,
+                theta: Some(n.theta.unwrap_or(0.0)),
+                map_id: map.map_id.clone(),
+            }),
+            node_description: None,
+        }
+    }
+
+    fn build_edge_state(
+        &self,
+        edge_id: &str,
+        edge: &Edge,
+        sequence_id: i64,
+        released: bool,
+    ) -> EdgeState {
         let trajectory = edge.curve.as_ref().map(|nurbs| Trajectory {
             degree: nurbs.degree as i64,
             knot_vector: nurbs.knots.clone(),
@@ -257,8 +316,8 @@ impl AgvSimulator {
 
         EdgeState {
             edge_id: edge_id.to_string(),
-            sequence_id: 1,
-            released: true,
+            sequence_id,
+            released,
             trajectory,
             edge_description: None,
         }
@@ -290,4 +349,80 @@ fn wrap_angle(a: f64) -> f64 {
         a += 2.0 * PI;
     }
     a
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{map::tests::example_map, scenario::ScriptedScenario};
+
+    fn agv(route: &[&str], looping: bool, map: &NodeMap) -> AgvSimulator {
+        let route: Vec<String> = route.iter().map(|n| n.to_string()).collect();
+        let start = route[0].clone();
+        let scenario = Box::new(ScriptedScenario::new(route, looping));
+        AgvSimulator::new("AGV".to_string(), 1.2, start, scenario, map)
+    }
+
+    fn tick_until(agv: &mut AgvSimulator, map: &NodeMap, done: impl Fn(&State) -> bool) -> State {
+        for _ in 0..100_000 {
+            let state = agv.tick(0.1, map);
+            if done(&state) {
+                return state;
+            }
+        }
+        panic!("simulation never reached the expected state");
+    }
+
+    fn node_ids(state: &State) -> Vec<&str> {
+        state
+            .node_states
+            .iter()
+            .map(|n| n.node_id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn reported_path_ends_where_the_order_ends() {
+        let map = example_map();
+        let route = [
+            "N01", "N02", "N03", "N04", "N05", "N10", "N09", "N08", "N07", "N06", "N01",
+        ];
+        let mut agv = agv(&route, true, &map);
+
+        let state = tick_until(&mut agv, &map, |s| s.driving);
+        assert_eq!(state.order_id, "AGV-order-001");
+        assert_eq!(node_ids(&state), ["N02", "N03", "N04", "N05"]);
+        assert_eq!(state.edge_states.len(), 4);
+    }
+
+    #[test]
+    fn a_finished_order_goes_idle_then_gives_way_to_the_next() {
+        let map = example_map();
+        let route = [
+            "N01", "N02", "N03", "N04", "N05", "N10", "N09", "N08", "N07", "N06", "N01",
+        ];
+        let mut agv = agv(&route, true, &map);
+
+        let finished = tick_until(&mut agv, &map, |s| s.node_states.is_empty());
+        assert_eq!(finished.order_id, "AGV-order-001");
+        assert_eq!(finished.order_update_id, i64::from(NODES_PER_ORDER) - 1);
+        assert!(finished.edge_states.is_empty());
+
+        let next = tick_until(&mut agv, &map, |s| !s.node_states.is_empty());
+        assert_eq!(next.order_id, "AGV-order-002");
+        assert_eq!(next.order_update_id, 0);
+    }
+
+    #[test]
+    fn an_agv_with_nowhere_to_go_keeps_its_finished_order() {
+        let map = example_map();
+        let mut agv = agv(&["N01", "N02", "N03", "N04", "N05"], false, &map);
+
+        tick_until(&mut agv, &map, |s| s.node_states.is_empty());
+        for _ in 0..100 {
+            let state = agv.tick(0.1, &map);
+            assert_eq!(state.order_id, "AGV-order-001");
+            assert!(state.node_states.is_empty());
+        }
+    }
 }

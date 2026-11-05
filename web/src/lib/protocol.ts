@@ -50,3 +50,22 @@ export function decodeFrame(buf: ArrayBuffer): AgvRecord[] {
 
   return records;
 }
+
+/** Text frame: start streaming a robot's route, or stop with a null serial. */
+export function selectRouteMessage(serial: string | null): string {
+  return JSON.stringify({ serial });
+}
+
+/**
+ * Text frame: a robot's remaining route (see `backend/src/runtime/route.rs`).
+ * Sent when it changes, and once right after the robot is selected.
+ */
+export interface RouteMessage {
+  serial: string;
+  /** World metres, in driving order. Empty if the robot reports no geometry. */
+  points: [number, number][];
+  /** Leading points that reach the next node. */
+  currentPoints: number;
+  /** Leading points that are released; the rest are the horizon. */
+  releasedPoints: number;
+}

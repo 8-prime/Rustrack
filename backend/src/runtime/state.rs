@@ -8,8 +8,13 @@ use shared::vda5050::{
     visualization::{self, Visualization},
 };
 
-use crate::interpolation;
-use crate::runtime::orders::{OrderHistory, OrderRecord};
+use crate::{
+    interpolation,
+    runtime::{
+        orders::{OrderHistory, OrderRecord},
+        route::PlannedPath,
+    },
+};
 
 /// Pose of the robot in world coordinates.
 #[derive(Clone)]
@@ -78,6 +83,9 @@ pub struct RobotState {
     pub velocity: Option<Velocity>,
     /// Last reported planned path, if the robot is currently executing an order.
     pub trajectory: Option<Arc<Trajectory>>,
+    /// What is left of the order. Only replaced when it changes, so a viewer can
+    /// tell whether it has already seen this one by comparing the pointer.
+    pub path: Arc<PlannedPath>,
     /// Distance driven along the current edge since `lastNodeId`, in meters. This
     /// is the robot's arc-length position along `trajectory`.
     pub distance_since_last_node: Option<f64>,
@@ -180,6 +188,15 @@ impl StateManager {
         Ok(result)
     }
 
+    /// The robot's remaining path, if it is known at all.
+    pub fn path(&self, id: &str) -> anyhow::Result<Option<Arc<PlannedPath>>> {
+        let states = self
+            .states
+            .read()
+            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+        Ok(states.get(id).map(|s| Arc::clone(&s.path)))
+    }
+
     /// Applies a full VDA5050 `state` message. The state topic is the authoritative
     /// snapshot, so the whole `vda_state` is replaced.
     pub fn update_state(&self, id: String, state: State) -> anyhow::Result<()> {
@@ -195,13 +212,19 @@ impl StateManager {
         let position = state.agv_position.map(Position::from);
         let velocity = state.velocity.map(Velocity::from);
         let distance = state.distance_since_last_node;
-        // v2 has no planned path; the trajectory lives per-edge. Use the first released
-        // edge that carries one.
-        let trajectory = state
+        let path = PlannedPath {
+            node_states: state.node_states,
+            edge_states: state.edge_states,
+        };
+        // v2 has no planned path; the trajectory lives per-edge. Only the edge being
+        // driven counts: `distanceSinceLastNode` is measured along that one, so a
+        // later edge's curve would place the robot somewhere else entirely.
+        let trajectory = path
             .edge_states
-            .into_iter()
+            .iter()
             .filter(|e| e.released)
-            .find_map(|e| e.trajectory)
+            .min_by_key(|e| e.sequence_id)
+            .and_then(|e| e.trajectory.as_ref())
             .map(|t| Arc::new(Trajectory::from(t)));
 
         let has_position = position.is_some();
@@ -216,6 +239,9 @@ impl StateManager {
             vs.record_pose(position, distance, timestamp);
             vs.velocity = velocity;
             vs.trajectory = trajectory;
+            if *vs.path != path {
+                vs.path = Arc::new(path);
+            }
         } else {
             states.insert(
                 id.clone(),
@@ -225,6 +251,7 @@ impl StateManager {
                     received_at: Instant::now(),
                     velocity,
                     trajectory,
+                    path: Arc::new(path),
                     distance_since_last_node: distance,
                     timestamp,
                 }),
@@ -280,6 +307,7 @@ impl StateManager {
                     received_at: Instant::now(),
                     velocity,
                     trajectory: None,
+                    path: Arc::default(),
                     distance_since_last_node: None,
                     timestamp,
                 }),
@@ -335,8 +363,8 @@ impl From<visualization::Velocity> for Velocity {
     }
 }
 
-impl From<state::ControlPoint> for ControlPoint {
-    fn from(c: state::ControlPoint) -> Self {
+impl From<&state::ControlPoint> for ControlPoint {
+    fn from(c: &state::ControlPoint) -> Self {
         Self {
             x: c.x,
             y: c.y,
@@ -345,16 +373,93 @@ impl From<state::ControlPoint> for ControlPoint {
     }
 }
 
-impl From<state::Trajectory> for Trajectory {
-    fn from(t: state::Trajectory) -> Self {
+impl From<&state::Trajectory> for Trajectory {
+    fn from(t: &state::Trajectory) -> Self {
         Self {
-            control_points: t
-                .control_points
-                .into_iter()
-                .map(ControlPoint::from)
-                .collect(),
+            control_points: t.control_points.iter().map(ControlPoint::from).collect(),
             degree: t.degree,
-            knot_vector: t.knot_vector,
+            knot_vector: t.knot_vector.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn state(edge_states: serde_json::Value) -> State {
+        serde_json::from_value(json!({
+            "actionStates": [],
+            "batteryState": { "batteryCharge": 100.0, "charging": false },
+            "driving": true,
+            "edgeStates": edge_states,
+            "errors": [],
+            "headerId": 1,
+            "lastNodeId": "",
+            "lastNodeSequenceId": 0,
+            "manufacturer": "test",
+            "nodeStates": [],
+            "operatingMode": "AUTOMATIC",
+            "orderId": "",
+            "orderUpdateId": 0,
+            "safetyState": { "eStop": "NONE", "fieldViolation": false },
+            "serialNumber": "agv",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "version": "2.1.0",
+        }))
+        .unwrap()
+    }
+
+    fn edge(sequence_id: i64, curved: bool) -> serde_json::Value {
+        let trajectory = curved.then(|| {
+            json!({
+                "controlPoints": [{ "x": 0.0, "y": 0.0 }, { "x": 1.0, "y": 0.0 }],
+                "degree": 1,
+                "knotVector": [0.0, 0.0, 1.0, 1.0],
+            })
+        });
+        json!({
+            "edgeId": format!("e{sequence_id}"),
+            "released": true,
+            "sequenceId": sequence_id,
+            "trajectory": trajectory,
+        })
+    }
+
+    fn robot(manager: &StateManager) -> Arc<RobotState> {
+        manager.states.read().unwrap()["agv"].clone()
+    }
+
+    /// `distanceSinceLastNode` measures the edge being driven, so a curve further
+    /// along the path must not be mistaken for it.
+    #[test]
+    fn only_the_edge_being_driven_sets_the_trajectory() {
+        let manager = StateManager::new();
+
+        manager
+            .update_state("agv".into(), state(json!([edge(3, true), edge(1, false)])))
+            .unwrap();
+        assert!(robot(&manager).trajectory.is_none());
+
+        manager
+            .update_state("agv".into(), state(json!([edge(1, true), edge(3, false)])))
+            .unwrap();
+        assert!(robot(&manager).trajectory.is_some());
+    }
+
+    #[test]
+    fn an_unchanged_path_keeps_its_identity() {
+        let manager = StateManager::new();
+
+        manager.update_state("agv".into(), state(json!([edge(1, true)]))).unwrap();
+        let first = robot(&manager).path.clone();
+
+        manager.update_state("agv".into(), state(json!([edge(1, true)]))).unwrap();
+        assert!(Arc::ptr_eq(&first, &robot(&manager).path));
+
+        manager.update_state("agv".into(), state(json!([edge(3, true)]))).unwrap();
+        assert!(!Arc::ptr_eq(&first, &robot(&manager).path));
     }
 }

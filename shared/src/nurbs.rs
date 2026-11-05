@@ -7,6 +7,13 @@
 //! along the curve and mapping arc length to the curve parameter — so that math
 //! lives here in the shared crate.
 
+/// Target length in metres of one tessellated curve segment.
+const CURVE_SEGMENT_METRES: f64 = 0.25;
+/// Floor on segments per curve, so a short curve is still recognisably curved.
+const MIN_CURVE_SEGMENTS: usize = 4;
+/// Ceiling on segments per curve, so one long sweep cannot dominate the payload.
+const MAX_CURVE_SEGMENTS: usize = 32;
+
 /// A single weighted control point of a NURBS curve.
 #[derive(Debug, Clone)]
 pub struct ControlPoint {
@@ -46,10 +53,59 @@ impl NurbsCurve {
     /// Returns `true` if the degree, knot vector, and control-point count are
     /// mutually consistent enough to evaluate without panicking. A knot vector
     /// has size `control_points + degree + 1`, and a curve needs at least
-    /// `degree + 1` control points.
+    /// `degree + 1` control points. The knots must also be non-decreasing, since
+    /// the span search would otherwise never terminate.
     pub fn is_valid(&self) -> bool {
         self.control_points.len() > self.degree
             && self.knots.len() == self.control_points.len() + self.degree + 1
+            && self.knots.windows(2).all(|k| k[0] <= k[1])
+    }
+
+    /// Sample the curve into a polyline, or `None` if it cannot be evaluated.
+    ///
+    /// A `None` return leaves the caller to fall back to a straight line, which
+    /// is the right degradation: a malformed curve should cost fidelity, not the
+    /// edge.
+    pub fn tessellate(&self) -> Option<Vec<[f64; 2]>> {
+        // evaluate() indexes the knot vector directly and would panic on a curve
+        // whose parts disagree, so this guard is load-bearing.
+        if !self.is_valid() {
+            return None;
+        }
+
+        // The parameter domain is whatever the author chose, not necessarily
+        // 0..1, so take the parameters from the arc-length walk.
+        let points: Vec<[f64; 2]> = self
+            .arc_length_table(self.segment_count())
+            .into_iter()
+            .map(|(_, u)| {
+                let (x, y) = self.evaluate(u);
+                [x, y]
+            })
+            .collect();
+
+        points
+            .iter()
+            .flatten()
+            .all(|c| c.is_finite())
+            .then_some(points)
+    }
+
+    /// Pick a sample count from the control polygon's length, which bounds the
+    /// curve's own length. A long sweep gets more segments than a short spur, so
+    /// neither goes visibly faceted nor pays for detail it cannot show.
+    fn segment_count(&self) -> usize {
+        let length: f64 = self
+            .control_points
+            .windows(2)
+            .map(|w| ((w[1].x - w[0].x).powi(2) + (w[1].y - w[0].y).powi(2)).sqrt())
+            .sum();
+
+        if !length.is_finite() {
+            return MIN_CURVE_SEGMENTS;
+        }
+        ((length / CURVE_SEGMENT_METRES).ceil() as usize)
+            .clamp(MIN_CURVE_SEGMENTS, MAX_CURVE_SEGMENTS)
     }
 
     /// Domain of the curve parameter `[u_start, u_end]`.
