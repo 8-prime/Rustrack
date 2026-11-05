@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { systemWsUrl } from "../lib/api";
 import { decodeFrame } from "../lib/protocol";
-import { StatusBadge, ViewToggle, type Status, type View } from "./viewControls";
+import {
+  BackToSystems,
+  StatusBadge,
+  ViewToggle,
+  type Status,
+  type View,
+} from "./viewControls";
 
 interface Props {
-  systemId: string | null;
+  systemId: string;
+  systemName: string;
   view: View;
   onViewChange: (view: View) => void;
 }
@@ -21,7 +28,7 @@ function timestamp(): string {
   return `${hh}:${mm}:${ss}.${ms}`;
 }
 
-export function PositionLog({ systemId, view, onViewChange }: Props) {
+export function PositionLog({ systemId, systemName, view, onViewChange }: Props) {
   const [status, setStatus] = useState<Status>("idle");
   const [robotCount, setRobotCount] = useState(0);
   const [lines, setLines] = useState<string[]>([]);
@@ -41,11 +48,6 @@ export function PositionLog({ systemId, view, onViewChange }: Props) {
     pending.current = [];
     setLines([]);
     setRobotCount(0);
-
-    if (!systemId) {
-      setStatus("idle");
-      return;
-    }
 
     setStatus("connecting");
     const ws = new WebSocket(systemWsUrl(systemId));
@@ -98,16 +100,16 @@ export function PositionLog({ systemId, view, onViewChange }: Props) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 border-b border-white/10 bg-[#1f2124] px-4 py-2 text-sm text-gray-200">
-        <span className="font-semibold">Published positions</span>
+        <BackToSystems />
+        <span className="font-semibold">{systemName || "(unnamed)"}</span>
         <StatusBadge status={status} />
         <span className="text-gray-400">{robotCount} robot(s)</span>
         <div className="ml-auto flex items-center gap-2">
           <ViewToggle view={view} onChange={onViewChange} />
           <button
             type="button"
-            disabled={!systemId}
             onClick={() => setPaused((p) => !p)}
-            className="rounded border border-white/15 px-2 py-1 text-xs text-gray-300 hover:bg-white/10 disabled:opacity-40"
+            className="rounded border border-white/15 px-2 py-1 text-xs text-gray-300 hover:bg-white/10"
           >
             {paused ? "Resume" : "Pause"}
           </button>
@@ -129,10 +131,7 @@ export function PositionLog({ systemId, view, onViewChange }: Props) {
         onScroll={onScroll}
         className="flex-1 overflow-y-auto bg-[#141518] p-3 font-mono text-xs leading-relaxed text-gray-100"
       >
-        {!systemId && (
-          <div className="text-gray-500">Select a system to view its positions.</div>
-        )}
-        {systemId && lines.length === 0 && (
+        {lines.length === 0 && (
           <div className="text-gray-500">
             Waiting for frames… (start the system if it is stopped)
           </div>

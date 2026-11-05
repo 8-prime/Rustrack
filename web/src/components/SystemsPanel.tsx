@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   type Configuration,
   type CreateSystem,
@@ -12,11 +13,6 @@ import {
   updateSystem,
   uploadLif,
 } from "../lib/api";
-
-interface Props {
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
-}
 
 const EMPTY_FORM: CreateSystem = {
   name: "",
@@ -54,7 +50,13 @@ function formFrom(config: Configuration): CreateSystem {
   };
 }
 
-export function SystemsPanel({ selectedId, onSelect }: Props) {
+/** Path of a system's runtime view — the stable, shareable link. */
+function runtimePath(id: string): string {
+  return `/systems/${encodeURIComponent(id)}/map`;
+}
+
+export function SystemsPanel() {
+  const navigate = useNavigate();
   const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<CreateSystem>(EMPTY_FORM);
@@ -133,7 +135,6 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
 
   const onDelete = async (id: string) => {
     await runAction(id, () => deleteSystem(id));
-    if (selectedId === id) onSelect(null);
     if (editingId === id) cancelEdit();
   };
 
@@ -164,9 +165,7 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
   };
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto bg-[#1f2124] p-4 text-gray-200">
-      <h1 className="text-lg font-semibold">Systems</h1>
-
+    <div className="flex flex-col gap-4 rounded-lg bg-[#1f2124] p-4 text-gray-200">
       {error && (
         <div className="rounded bg-red-500/15 px-3 py-2 text-sm text-red-300">
           {error}
@@ -188,7 +187,6 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
           <li className="text-sm text-gray-400">No systems yet.</li>
         )}
         {systems.map(({ config, state, lif }) => {
-          const selected = config.id === selectedId;
           const running = state === "Running";
           const busy = busyId === config.id;
           const editing = editingId === config.id;
@@ -196,13 +194,11 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
           return (
             <li
               key={config.id}
-              onClick={() => onSelect(config.id)}
+              onClick={() => navigate(runtimePath(config.id))}
               className={`cursor-pointer rounded border p-3 ${
                 editing
                   ? "border-amber-500 ring-2 ring-amber-500/30"
-                  : selected
-                    ? "border-amber-500 bg-amber-500/10"
-                    : "border-white/10 hover:border-white/25"
+                  : "border-white/10 hover:border-white/25"
               }`}
             >
               <div className="flex items-center justify-between gap-2">
@@ -230,6 +226,14 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
                 )}
               </div>
               <div className="mt-2 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+                {/* A real link, so the runtime view can be opened in a new tab
+                    or its address copied — the row's onClick cannot do that. */}
+                <Link
+                  to={runtimePath(config.id)}
+                  className="rounded bg-amber-500 px-2 py-1 text-xs font-medium text-black"
+                >
+                  Open
+                </Link>
                 <button
                   type="button"
                   disabled={busy || running}
@@ -279,7 +283,7 @@ export function SystemsPanel({ selectedId, onSelect }: Props) {
       {/* Create / edit form */}
       <form
         onSubmit={onSubmit}
-        className={`mt-auto flex flex-col gap-2 rounded border p-3 ${
+        className={`flex flex-col gap-2 rounded border p-3 ${
           editingId ? "border-amber-500/60 bg-amber-500/5" : "border-white/10"
         }`}
       >

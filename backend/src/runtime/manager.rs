@@ -156,6 +156,17 @@ impl RuntimesManager {
         Ok(infos)
     }
 
+    pub async fn system_info(&self, id: &str) -> Option<SystemInfo> {
+        let runtimes = self.runtimes.read().await;
+        let runtime = runtimes.get(id)?;
+
+        Some(SystemInfo {
+            config: runtime.config.clone(),
+            state: runtime.state.clone(),
+            lif: runtime.lif.read().await.clone(),
+        })
+    }
+
     pub async fn add(&self, config: Configuration) -> Result<SystemInfo> {
         let mut runtimes = self.runtimes.write().await;
 
@@ -349,7 +360,11 @@ impl RuntimesManager {
     /// document, so the default view is cached on the runtime. An explicit
     /// `layout` request is served but not cached — it would otherwise evict
     /// the view almost every viewer is asking for.
-    pub async fn get_map(&self, id: String, layout: Option<String>) -> Result<Option<Arc<MapView>>> {
+    pub async fn get_map(
+        &self,
+        id: String,
+        layout: Option<String>,
+    ) -> Result<Option<Arc<MapView>>> {
         {
             let runtimes = self.runtimes.read().await;
             let Some(runtime) = runtimes.get(&id) else {
