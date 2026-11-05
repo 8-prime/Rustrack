@@ -8,6 +8,10 @@ use crate::{
     scenario::Scenario,
 };
 
+/// Nodes an AGV visits before its order is complete and it takes the next one.
+const NODES_PER_ORDER: u32 = 4;
+/// Pause between two orders, in seconds. Long enough for an idle state to be seen.
+const ORDER_DWELL_S: f64 = 2.0;
 
 enum Motion {
     Idle,
@@ -23,7 +27,12 @@ pub struct AgvSimulator {
     scenario: Box<dyn Scenario>,
     battery_pct: f64,
     header_id: u32,
-    order_id: String,
+    order_number: u32,
+    order_update_id: i64,
+    /// Nodes reached so far in the current order.
+    order_progress: u32,
+    /// The order is done; the next one starts when the current dwell ends.
+    order_complete: bool,
     /// Last computed pose (x, y, theta) — kept so Idle can report a stable position.
     last_pose: (f64, f64, f64),
 }
@@ -52,7 +61,10 @@ impl AgvSimulator {
             scenario,
             battery_pct: 95.0,
             header_id: 0,
-            order_id: "sim-order-001".to_string(),
+            order_number: 1,
+            order_update_id: 0,
+            order_progress: 0,
+            order_complete: false,
             last_pose: pos,
         }
     }
@@ -71,6 +83,12 @@ impl AgvSimulator {
                 *remaining_s -= dt;
                 if *remaining_s <= 0.0 {
                     let node_id = node_id.clone();
+                    if self.order_complete {
+                        self.order_number += 1;
+                        self.order_update_id = 0;
+                        self.order_progress = 0;
+                        self.order_complete = false;
+                    }
                     // Ask scenario for next target
                     if let Some(next) = self.scenario.next_target(&node_id, map) {
                         if let Some(edge_id) = map.edge_between(&node_id, &next) {
@@ -100,9 +118,14 @@ impl AgvSimulator {
                     let arrived_at = edge.to.clone();
                     self.current_node = arrived_at.clone();
                     self.last_pose = (map.nodes[&arrived_at].x, map.nodes[&arrived_at].y, 0.0);
+                    self.order_progress += 1;
+                    self.order_complete = self.order_progress >= NODES_PER_ORDER;
+                    if !self.order_complete {
+                        self.order_update_id += 1;
+                    }
                     self.motion = Motion::Waiting {
                         node_id: arrived_at,
-                        remaining_s: 0.5,
+                        remaining_s: if self.order_complete { ORDER_DWELL_S } else { 0.5 },
                     };
                 } else {
                     let (x, y) = map.position_on_edge(edge, *progress_m);
@@ -149,19 +172,25 @@ impl AgvSimulator {
             _ => (None, vec![], None),
         };
 
-        // Report the current node in nodeStates.
-        let node_states = vec![NodeState {
-            node_id: self.current_node.clone(),
-            sequence_id: 0,
-            released: true,
-            node_position: map.nodes.get(&self.current_node).map(|n| NodePosition {
-                x: n.x,
-                y: n.y,
-                theta: Some(n.theta.unwrap_or(0.0)),
-                map_id: map.map_id.clone(),
-            }),
-            node_description: None,
-        }];
+        // Report the current node in nodeStates, unless the order is over: VDA5050
+        // has an idle AGV report an empty list while it keeps the last orderId.
+        let order_over = self.order_complete || matches!(self.motion, Motion::Idle);
+        let node_states = if order_over {
+            vec![]
+        } else {
+            vec![NodeState {
+                node_id: self.current_node.clone(),
+                sequence_id: 0,
+                released: true,
+                node_position: map.nodes.get(&self.current_node).map(|n| NodePosition {
+                    x: n.x,
+                    y: n.y,
+                    theta: Some(n.theta.unwrap_or(0.0)),
+                    map_id: map.map_id.clone(),
+                }),
+                node_description: None,
+            }]
+        };
 
         State {
             header_id: self.header_id as i64,
@@ -169,8 +198,8 @@ impl AgvSimulator {
             version: "2.1.0".to_string(),
             manufacturer: "Rustrack-Sim".to_string(),
             serial_number: self.serial.clone(),
-            order_id: self.order_id.clone(),
-            order_update_id: 0,
+            order_id: format!("{}-order-{:03}", self.serial, self.order_number),
+            order_update_id: self.order_update_id,
             last_node_id: self.current_node.clone(),
             last_node_sequence_id: 0,
             driving,

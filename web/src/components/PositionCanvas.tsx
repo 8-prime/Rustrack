@@ -407,6 +407,7 @@ export function PositionCanvas({ systemId, systemName, view, onViewChange }: Pro
           className="absolute inset-0 block h-full w-full touch-none"
         />
         <DevicePanel
+          systemId={systemId}
           serials={serials}
           followed={followed}
           onZoomTo={(serial) => rendererRef.current?.zoom_to(serial)}

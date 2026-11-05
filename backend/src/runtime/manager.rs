@@ -10,7 +10,7 @@ use crate::{
     configuration::configuration::{Configuration, ConfigurationFields},
     mqtt::receiver::MqttReceiver,
     persistence::Persistence,
-    runtime::{publisher::Publisher, state::StateManager},
+    runtime::{orders::OrderRecord, publisher::Publisher, state::StateManager},
 };
 
 #[derive(Clone, Serialize)]
@@ -265,6 +265,15 @@ impl RuntimesManager {
     /// Whether a system with this id is registered.
     pub async fn exists(&self, id: &str) -> bool {
         self.runtimes.read().await.contains_key(id)
+    }
+
+    /// A device's recent orders, or `None` if the system is unknown.
+    pub async fn device_orders(&self, id: &str, serial: &str) -> Result<Option<Vec<OrderRecord>>> {
+        let runtimes = self.runtimes.read().await;
+        let Some(runtime) = runtimes.get(id) else {
+            return Ok(None);
+        };
+        Ok(Some(runtime.state_manager.orders(serial)?))
     }
 
     /// Parse, validate, and store a LIF layout for a system.

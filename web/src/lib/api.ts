@@ -88,6 +88,20 @@ export interface MapView {
   stations: MapStation[];
 }
 
+export type OrderStatus = "active" | "finished" | "failed" | "unknown";
+
+/** One of a device's recent VDA5050 orders. */
+export interface OrderRecord {
+  orderId: string;
+  /** Latest revision seen; grows when master control extends the order. */
+  orderUpdateId: number;
+  status: OrderStatus;
+  /** When the order was first seen, in device time. */
+  startedAt: string;
+  /** When the order stopped being active. Null while it still is. */
+  endedAt: string | null;
+}
+
 /** Body for `POST /api/systems`. */
 export interface CreateSystem {
   name: string;
@@ -206,6 +220,13 @@ export function deleteLif(id: string): Promise<void> {
   return request<void>(`/api/systems/${encodeURIComponent(id)}/lif`, {
     method: "DELETE",
   });
+}
+
+/** Fetch a device's last few orders, newest first. Empty if it has reported none. */
+export function getDeviceOrders(systemId: string, serial: string): Promise<OrderRecord[]> {
+  return request<OrderRecord[]>(
+    `/api/systems/${encodeURIComponent(systemId)}/devices/${encodeURIComponent(serial)}/orders`,
+  );
 }
 
 /** Build the WebSocket URL for a system's live pose stream. */
