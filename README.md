@@ -4,6 +4,7 @@ Tracks VDA5050 AGV fleets over MQTT and shows them live on a LIF layout.
 
 - `backend` – the server: subscribes to MQTT, stores systems, serves the API and web UI
 - `web` – the React frontend
+- `renderer` – the wgpu map renderer, compiled to WebAssembly for the frontend
 - `simulator` – a simulated fleet with an embedded MQTT broker
 - `shared` – types shared by the above
 - `installer` – the Windows installer
@@ -32,6 +33,10 @@ backend --listen 127.0.0.1:8080 --data-dir ./data
 | ------------------ | ----------------------- | ----------------------------- |
 | `-l`, `--listen`   | `0.0.0.0:3000`          | Address to listen on          |
 | `--data-dir`       | the working directory   | Where `runtimes_store.db` goes |
+
+The map view renders with WebGPU, which browsers only offer on secure origins:
+open it over HTTPS or on `localhost`. Over plain HTTP from another machine the
+map stays blank. The system list and log view still work.
 
 ## Windows service
 

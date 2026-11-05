@@ -27,6 +27,18 @@ pub async fn get_systems(State(state): State<WebApp>) -> Json<Vec<SystemInfo>> {
     )
 }
 
+pub async fn get_system(
+    State(state): State<WebApp>,
+    Path(id): Path<String>,
+) -> Result<Json<SystemInfo>, AppError> {
+    let Some(info) = state.runtimes_manager.system_info(&id).await else {
+        return Err(AppError::not_found(anyhow::anyhow!(
+            "system '{id}' does not exist"
+        )));
+    };
+    Ok(Json(info))
+}
+
 //create system
 pub async fn create_system(
     State(state): State<WebApp>,
@@ -149,7 +161,11 @@ pub async fn get_map(
         )));
     }
 
-    let Some(map) = state.runtimes_manager.get_map(id.clone(), query.layout).await? else {
+    let Some(map) = state
+        .runtimes_manager
+        .get_map(id.clone(), query.layout)
+        .await?
+    else {
         return Err(AppError::not_found(anyhow::anyhow!(
             "system '{id}' has no layout"
         )));

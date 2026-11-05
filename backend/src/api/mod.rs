@@ -3,10 +3,10 @@ use std::{path::Path, sync::Arc};
 use axum::{
     Router,
     extract::DefaultBodyLimit,
-    routing::{get, post, put},
+    routing::{any, get, post},
 };
 
-use crate::runtime::manager::RuntimesManager;
+use crate::{api::error::AppError, runtime::manager::RuntimesManager};
 
 /// Upload ceiling for a LIF layout. Real layouts run to tens of megabytes;
 /// this leaves generous headroom while still bounding the request.
@@ -37,7 +37,9 @@ pub fn new(data_dir: &Path) -> anyhow::Result<Router> {
         )
         .route(
             "/api/systems/{id}",
-            put(systems::update_system).delete(systems::delete_system),
+            get(systems::get_system)
+                .put(systems::update_system)
+                .delete(systems::delete_system),
         )
         .route("/api/systems/{id}/start", post(systems::start_system))
         .route("/api/systems/{id}/stop", post(systems::stop_system))
@@ -52,6 +54,11 @@ pub fn new(data_dir: &Path) -> anyhow::Result<Router> {
         // limit applies.
         .route("/api/systems/{id}/map", get(systems::get_map))
         .route("/api/systems/{id}/ws", get(ws::handler))
+        // reject any unknown paths under /api/
+        .route(
+            "/api/{*rest}",
+            any(async || AppError::not_found(anyhow::anyhow!("unknown endpoint"))),
+        )
         // Everything else is the embedded frontend.
         .fallback(get(web::handler))
         .with_state(web_app_state);
