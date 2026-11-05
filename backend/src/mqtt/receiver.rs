@@ -8,7 +8,10 @@ use rumqttc::{
         pki_types::{CertificateDer, ServerName, UnixTime},
     },
 };
-use shared::vda5050::{state::State, visualization::Visualization};
+use shared::{
+    MQTT_MAX_PACKET_BYTES,
+    vda5050::{state::State, visualization::Visualization},
+};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -53,6 +56,7 @@ impl MqttReceiver {
             .set_certificate_verifier(Arc::new(NoCertificateVerification));
 
         let mut opts = MqttOptions::new("Rustrack", self.mqtt_url.clone(), self.mqtt_port);
+        opts.set_max_packet_size(MQTT_MAX_PACKET_BYTES, MQTT_MAX_PACKET_BYTES);
         if let Some(user) = &self.mqtt_username
             && let Some(password) = &self.mqtt_password
         {

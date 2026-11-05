@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getMap, systemWsUrl, type MapView } from "../lib/api";
 import { decodeFrame, type AgvRecord } from "../lib/protocol";
 import {
+  AGV_FOCUS_PX,
   AGV_FOOTPRINT_M,
-  AGV_MAX_PX,
+  AGV_LABEL_MAX_GAP_PX,
   AGV_MIN_PX,
   CANVAS,
   MAP_NODE_RADIUS,
@@ -12,6 +13,7 @@ import {
   MIN_ZOOM,
   PADDING_FRAC,
 } from "../lib/theme";
+import { DevicePanel } from "./DevicePanel";
 import { StatusBadge, ViewToggle, type Status, type View } from "./viewControls";
 
 interface Props {
@@ -66,7 +68,9 @@ const IDENTITY_VIEW: ViewState = { zoom: 1, panX: 0, panY: 0, frozen: null };
 
 // The layout drawn into screen-space paths. Stroking a few thousand polylines
 // every frame is wasted work when neither the map nor the transform has moved,
-// so the paths are rebuilt only when one of them does.
+// so the paths are rebuilt only when one of them does. Panning alone doesn't
+// count: the paths are just drawn translated, which keeps a following camera,
+// whose pan changes every frame, cheap.
 interface MapGeometry {
   map: MapView;
   transform: Transform;
@@ -86,12 +90,36 @@ const SCALE_BAR_TARGET_PX = 120;
 // Past this many lines the grid is noise, so it is dropped rather than drawn.
 const MAX_GRID_LINES = 800;
 
+const serialOrder = new Intl.Collator(undefined, { numeric: true });
+
 // The vehicle sprite, shared by every canvas instance and every robot. Drawing
 // starts as soon as it decodes; until then robots fall back to a plain dot.
 const agvSprite = new Image();
 agvSprite.src = "/agv.png";
 function spriteReady(): boolean {
   return agvSprite.complete && agvSprite.naturalWidth > 0;
+}
+
+// How far from `prev` toward `cur` to draw, rendering one interval behind real
+// time: a frame that just arrived gives 0 and a full interval later gives 1,
+// holding there until the next frame.
+function blendFactor(cur: Frame, prev: Frame | null, now: number): number {
+  if (!prev) return 1;
+  const interval = Math.min(Math.max(cur.time - prev.time, MIN_INTERVAL_MS), MAX_INTERVAL_MS);
+  return Math.min(Math.max((now - cur.time) / interval, 0), 1);
+}
+
+// Blend from a robot's previous pose toward `r`. Robots absent from the previous
+// frame (just appeared) stay at their current pose.
+function blendedPose(r: AgvRecord, prev: Frame | null, f: number): AgvRecord {
+  const p = prev?.byId.get(r.serial);
+  if (!p) return r;
+  return {
+    serial: r.serial,
+    x: p.x + (r.x - p.x) * f,
+    y: p.y + (r.y - p.y) * f,
+    theta: angleLerp(p.theta, r.theta, f),
+  };
 }
 
 // Interpolate an angle along its shortest arc, handling the +pi/-pi seam.
@@ -148,28 +176,22 @@ function unproject(t: Transform, sx: number, sy: number): [number, number] {
   ];
 }
 
-// The AGV's on-screen size, in px. The clamps keep vehicles readable on layouts
-// whose auto-fit would otherwise draw them as specks or as slabs -- but they act
-// on the fit scale alone. User zoom multiplies afterwards, so zooming in keeps
-// growing the sprite in proportion to the track instead of pinning it at
-// AGV_MAX_PX partway through the zoom range.
-function agvSize(t: Transform): number {
-  const fitted = AGV_FOOTPRINT_M * (t.scale / t.zoom);
-  return Math.min(Math.max(fitted, AGV_MIN_PX), AGV_MAX_PX) * t.zoom;
+// Set the pan that puts world point (x, y) at the centre of the canvas.
+function centreOn(view: ViewState, b: Bounds, w: number, h: number, x: number, y: number) {
+  const t = fit(b, w, h, view);
+  view.panX = -(x - t.cx) * t.scale;
+  view.panY = (y - t.cy) * t.scale;
 }
 
-// `zoom` is omitted: it is redundant with `scale` for a given `w`/`h`, so two
-// transforms agreeing on everything here already agree on it.
-function sameTransform(a: Transform, b: Transform): boolean {
-  return (
-    a.scale === b.scale &&
-    a.cx === b.cx &&
-    a.cy === b.cy &&
-    a.w === b.w &&
-    a.h === b.h &&
-    a.panX === b.panX &&
-    a.panY === b.panY
-  );
+// The AGV's on-screen size, in px.
+function agvSize(t: Transform): number {
+  return Math.max(AGV_FOOTPRINT_M * t.scale, AGV_MIN_PX);
+}
+
+// Whether two transforms differ by at most a pan. `zoom` is omitted: it is
+// redundant with `scale` for a given `w`/`h`.
+function sameExceptPan(a: Transform, b: Transform): boolean {
+  return a.scale === b.scale && a.cx === b.cx && a.cy === b.cy && a.w === b.w && a.h === b.h;
 }
 
 // Snap a raw distance up or down to the nearest 1/2/5 x 10^n, so grid spacing
@@ -288,6 +310,9 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
   const [hasMap, setHasMap] = useState(false);
   // Mirrors `viewState.current.frozen !== null`, purely to show the Fit button.
   const [adjusted, setAdjusted] = useState(false);
+  // Every robot in the current frame, sorted for the device list.
+  const [serials, setSerials] = useState<string[]>([]);
+  const [followed, setFollowed] = useState<string | null>(null);
 
   const curFrame = useRef<Frame | null>(null);
   const prevFrame = useRef<Frame | null>(null);
@@ -300,13 +325,54 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
   const lastTransform = useRef<Transform | null>(null);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const followedRef = useRef(followed);
+  followedRef.current = followed;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // Detach the view from the growing live bounds, keeping what is on screen.
+  const takeOver = useCallback(() => {
+    if (viewState.current.frozen) return;
+    viewState.current.frozen = bounds.current ? { ...bounds.current } : null;
+    if (viewState.current.frozen) setAdjusted(true);
+  }, []);
+
   const resetView = () => {
     viewState.current = { ...IDENTITY_VIEW };
     setAdjusted(false);
+    setFollowed(null);
+  };
+
+  // Centre on a robot, zooming in until it is easy to see. Never zooms out, so
+  // a closer view the user already chose is kept.
+  const focusOn = (serial: string) => {
+    const t = lastTransform.current;
+    const r = curFrame.current?.byId.get(serial);
+    if (!t || !r || !Number.isFinite(r.x) || !Number.isFinite(r.y)) return;
+
+    takeOver();
+    const v = viewState.current;
+    if (!v.frozen) return;
+
+    const focusZoom = AGV_FOCUS_PX / AGV_FOOTPRINT_M / (t.scale / t.zoom);
+    v.zoom = Math.max(v.zoom, Math.min(Math.max(focusZoom, MIN_ZOOM), MAX_ZOOM));
+    centreOn(v, v.frozen, t.w, t.h, r.x, r.y);
+  };
+
+  const zoomTo = (serial: string) => {
+    // Zooming to anything else would otherwise be undone by the next frame.
+    if (serial !== followed) setFollowed(null);
+    focusOn(serial);
+  };
+
+  const toggleFollow = (serial: string) => {
+    if (serial === followed) {
+      setFollowed(null);
+    } else {
+      focusOn(serial);
+      setFollowed(serial);
+    }
   };
 
   // Load the system's layout. A 404 just means no layout has been uploaded —
@@ -349,6 +415,8 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
     viewState.current = { ...IDENTITY_VIEW };
     setAdjusted(false);
     setRobotCount(0);
+    setSerials([]);
+    setFollowed(null);
 
     if (!systemId) {
       setStatus("idle");
@@ -377,6 +445,13 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
         byId: new Map(records.map((r) => [r.serial, r])),
         time: performance.now(),
       };
+
+      const names = records.map((r) => r.serial).sort(serialOrder.compare);
+      setSerials((current) =>
+        current.length === names.length && current.every((s, i) => s === names[i])
+          ? current
+          : names,
+      );
 
       // Grow persistent bounds so the view never rescales away from a robot.
       for (const r of records) {
@@ -423,13 +498,6 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Detach the view from the growing live bounds, keeping what is on screen.
-    const takeOver = () => {
-      if (viewState.current.frozen) return;
-      viewState.current.frozen = bounds.current ? { ...bounds.current } : null;
-      if (viewState.current.frozen) setAdjusted(true);
-    };
-
     const onWheel = (e: WheelEvent) => {
       const t = lastTransform.current;
       if (!t) return;
@@ -443,6 +511,12 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
 
       const v = viewState.current;
       const next = Math.min(Math.max(v.zoom * Math.exp(-e.deltaY * 0.0015), MIN_ZOOM), MAX_ZOOM);
+      // While following, the robot stays centred instead of the cursor's point;
+      // the render loop recomputes the pan.
+      if (followedRef.current) {
+        v.zoom = next;
+        return;
+      }
       // `scale` is proportional to zoom, so the new scale follows from the ratio
       // without refitting; then solve for the pan that pins (wx, wy) under the
       // cursor.
@@ -468,6 +542,8 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
 
     const onPointerMove = (e: PointerEvent) => {
       if (!dragging) return;
+      // Dragging is a request to look elsewhere, which following would undo.
+      if (followedRef.current) setFollowed(null);
       viewState.current.panX += e.clientX - lastX;
       viewState.current.panY += e.clientY - lastY;
       lastX = e.clientX;
@@ -494,7 +570,7 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
       canvas.removeEventListener("pointerup", endDrag);
       canvas.removeEventListener("pointercancel", endDrag);
     };
-  }, []);
+  }, [takeOver]);
 
   // Render loop: read the latest records each frame and draw them.
   useEffect(() => {
@@ -537,6 +613,19 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
         return;
       }
 
+      const prev = prevFrame.current;
+      const f = cur ? blendFactor(cur, prev, now) : 1;
+
+      // A followed robot missing from this frame leaves the camera where it is,
+      // so it picks back up if the robot returns.
+      const target = followedRef.current ? cur?.byId.get(followedRef.current) : undefined;
+      if (target) {
+        const pose = blendedPose(target, prev, f);
+        if (Number.isFinite(pose.x) && Number.isFinite(pose.y)) {
+          centreOn(viewState.current, b, w, h, pose.x, pose.y);
+        }
+      }
+
       const transform = fit(b, w, h, viewState.current);
       lastTransform.current = transform;
       const toScreen = (x: number, y: number): [number, number] =>
@@ -547,19 +636,22 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
       // --- map layer ---
       const loaded = map.current;
       if (loaded) {
-        // Rebuild the screen-space paths only when the map or the view changed.
+        // Rebuild the screen-space paths only when the map or the scale changed.
         const cached = geometry.current;
-        if (!cached || cached.map !== loaded || !sameTransform(cached.transform, transform)) {
+        if (!cached || cached.map !== loaded || !sameExceptPan(cached.transform, transform)) {
           geometry.current = buildGeometry(loaded, transform);
         }
         const geo = geometry.current!;
 
+        ctx.save();
+        ctx.translate(transform.panX - geo.transform.panX, transform.panY - geo.transform.panY);
         ctx.strokeStyle = CANVAS.edge;
         ctx.lineWidth = 1.5;
         ctx.stroke(geo.edges);
 
         ctx.fillStyle = CANVAS.node;
         ctx.fill(geo.nodes);
+        ctx.restore();
 
         // Stations are few, and each carries a label, so they stay per-frame.
         ctx.font = "10px ui-monospace, monospace";
@@ -580,23 +672,10 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
 
       // --- robot layer, on top ---
       if (cur && cur.records.length > 0) {
-        // Render one interval behind real time and interpolate `prev -> cur`.
-        // `now == cur.time` (a frame just arrived) gives f=0; a full interval
-        // later gives f=1; beyond that it holds at `cur` until the next frame.
-        const prev = prevFrame.current;
-        let f = 1;
-        if (prev) {
-          const interval = Math.min(
-            Math.max(cur.time - prev.time, MIN_INTERVAL_MS),
-            MAX_INTERVAL_MS,
-          );
-          f = Math.min(Math.max((now - cur.time) / interval, 0), 1);
-        }
-
         const size = agvSize(transform);
         // Below the sprite, but only until the sprite outgrows the label gap --
         // past that the text would drift away from the vehicle it names.
-        const labelGap = Math.min(size / 2, AGV_MAX_PX / 2) + 4;
+        const labelGap = Math.min(size / 2, AGV_LABEL_MAX_GAP_PX) + 4;
         const ready = spriteReady();
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
@@ -604,13 +683,7 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
         for (const r of cur.records) {
           if (!Number.isFinite(r.x) || !Number.isFinite(r.y)) continue;
 
-          // Blend from the robot's previous pose toward this one. Robots absent
-          // from the previous frame (just appeared) render at their current pose.
-          const p = prev?.byId.get(r.serial);
-          const x = p ? p.x + (r.x - p.x) * f : r.x;
-          const y = p ? p.y + (r.y - p.y) * f : r.y;
-          const theta = p ? angleLerp(p.theta, r.theta, f) : r.theta;
-
+          const { x, y, theta } = blendedPose(r, prev, f);
           const [sx, sy] = toScreen(x, y);
 
           if (ready) {
@@ -631,7 +704,7 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
           }
 
           // Label below the sprite, so neighbouring vehicles do not overlap it.
-          ctx.fillStyle = CANVAS.robotLabel;
+          ctx.fillStyle = r.serial === followedRef.current ? CANVAS.followedLabel : CANVAS.robotLabel;
           ctx.font = "11px ui-monospace, monospace";
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
@@ -696,6 +769,14 @@ export function PositionCanvas({ systemId, view, onViewChange }: Props) {
 
       <div ref={containerRef} className="relative min-h-0 flex-1 bg-[#1b1d21]">
         <canvas ref={canvasRef} className="block h-full w-full touch-none" />
+        {systemId && (
+          <DevicePanel
+            serials={serials}
+            followed={followed}
+            onZoomTo={zoomTo}
+            onToggleFollow={toggleFollow}
+          />
+        )}
         {showOverlay && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-gray-400">
             {!systemId
