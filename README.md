@@ -40,7 +40,7 @@ starts it as the `Rustrack` service, set to start automatically. Build it with
 [NSIS](https://nsis.sourceforge.io):
 
 ```sh
-makensis -DVERSION=0.1.0 -DEXE=target/release/backend.exe installer/rustrack.nsi
+makensis -DVERSION=0.1.0 -DEXE=../target/release/backend.exe installer/rustrack.nsi
 ```
 
 This produces `installer/rustrack-setup-0.1.0.exe`. It asks for the listen

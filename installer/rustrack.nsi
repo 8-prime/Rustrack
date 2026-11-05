@@ -1,7 +1,9 @@
 ; Installs Rustrack and registers it as the "Rustrack" Windows service.
 ;
 ; Build with:
-;   makensis -DVERSION=0.1.0 -DEXE=path/to/backend.exe installer/rustrack.nsi
+;   makensis -DVERSION=0.1.0 -DEXE=../target/release/backend.exe installer/rustrack.nsi
+;
+; A relative EXE path is resolved from this directory, not the working directory.
 ;
 ; Unattended install:
 ;   rustrack-setup-0.1.0.exe /S /LISTEN=127.0.0.1:8080
