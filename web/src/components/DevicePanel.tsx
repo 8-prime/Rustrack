@@ -3,11 +3,24 @@ import { useState } from "react";
 interface Props {
   serials: string[];
   followed: string | null;
+  /** The device whose route is on the map. */
+  selected: string | null;
+  /** Whether it reported a route; null while that is still unknown. */
+  hasRoute: boolean | null;
   onZoomTo: (serial: string) => void;
   onToggleFollow: (serial: string) => void;
+  onClearSelection: () => void;
 }
 
-export function DevicePanel({ serials, followed, onZoomTo, onToggleFollow }: Props) {
+export function DevicePanel({
+  serials,
+  followed,
+  selected,
+  hasRoute,
+  onZoomTo,
+  onToggleFollow,
+  onClearSelection,
+}: Props) {
   const [open, setOpen] = useState(true);
   const [query, setQuery] = useState("");
 
@@ -34,6 +47,22 @@ export function DevicePanel({ serials, followed, onZoomTo, onToggleFollow }: Pro
         </div>
       )}
 
+      {selected && (
+        <div className="flex items-center gap-2 border-t border-white/10 px-2 py-1 text-sky-300">
+          <span className="min-w-0 flex-1 truncate">
+            {hasRoute === false ? `${selected}: no route reported` : `Route of ${selected}`}
+          </span>
+          <button
+            type="button"
+            title="Hide route"
+            onClick={onClearSelection}
+            className="rounded px-1 text-gray-400 hover:bg-white/10"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {open && (
         <div className="border-t border-white/10 p-2">
           <input
@@ -52,13 +81,17 @@ export function DevicePanel({ serials, followed, onZoomTo, onToggleFollow }: Pro
             )}
             {matches.map((serial) => {
               const following = serial === followed;
+              const isSelected = serial === selected;
               return (
                 <li key={serial} className="flex items-center gap-1">
                   <button
                     type="button"
-                    title={`Zoom to ${serial}`}
+                    title={`Zoom to ${serial} and show its route`}
                     onClick={() => onZoomTo(serial)}
-                    className="min-w-0 flex-1 truncate rounded px-1 py-1 text-left font-mono hover:bg-white/10"
+                    aria-current={isSelected}
+                    className={`min-w-0 flex-1 truncate rounded px-1 py-1 text-left font-mono hover:bg-white/10 ${
+                      isSelected ? "text-sky-300" : ""
+                    }`}
                   >
                     {serial}
                   </button>

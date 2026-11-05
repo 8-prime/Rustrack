@@ -8,6 +8,8 @@ use crate::{
     scenario::Scenario,
 };
 
+/// How many edges of the planned path are released; the rest are the horizon.
+const RELEASED_EDGES: usize = 3;
 
 enum Motion {
     Idle,
@@ -120,7 +122,7 @@ impl AgvSimulator {
         let (x, y, theta) = self.last_pose;
         let driving = matches!(self.motion, Motion::Moving { .. });
 
-        let (distance_since_last_node, edge_states, velocity) = match &self.motion {
+        let (distance_since_last_node, velocity) = match &self.motion {
             Motion::Moving {
                 edge_id,
                 progress_m,
@@ -135,10 +137,8 @@ impl AgvSimulator {
                 let h0 = map.heading_on_edge(edge, *progress_m);
                 let h1 = map.heading_on_edge(edge, (*progress_m + eps).min(edge.length));
                 let omega = wrap_angle(h1 - h0) / eps * speed;
-                let es = self.build_edge_state(edge_id, edge);
                 (
                     Some(*progress_m),
-                    vec![es],
                     Some(Velocity {
                         vx: Some(speed),
                         vy: Some(0.0),
@@ -146,22 +146,10 @@ impl AgvSimulator {
                     }),
                 )
             }
-            _ => (None, vec![], None),
+            _ => (None, None),
         };
 
-        // Report the current node in nodeStates.
-        let node_states = vec![NodeState {
-            node_id: self.current_node.clone(),
-            sequence_id: 0,
-            released: true,
-            node_position: map.nodes.get(&self.current_node).map(|n| NodePosition {
-                x: n.x,
-                y: n.y,
-                theta: Some(n.theta.unwrap_or(0.0)),
-                map_id: map.map_id.clone(),
-            }),
-            node_description: None,
-        }];
+        let (node_states, edge_states) = self.build_path(map);
 
         State {
             header_id: self.header_id as i64,
@@ -211,7 +199,74 @@ impl AgvSimulator {
         }
     }
 
-    fn build_edge_state(&self, edge_id: &str, edge: &Edge) -> EdgeState {
+    /// What is left of the order. As in VDA5050, a node leaves `nodeStates` once
+    /// it is passed, so while driving the list starts with the edge in progress.
+    fn build_path(&self, map: &NodeMap) -> (Vec<NodeState>, Vec<EdgeState>) {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        let mut sequence_id = 0;
+
+        let mut at = match &self.motion {
+            Motion::Moving { edge_id, .. } => {
+                let edge = &map.edges[edge_id.as_str()];
+                edges.push(self.build_edge_state(edge_id, edge, 1, true));
+                nodes.push(self.build_node_state(&edge.to, 2, true, map));
+                sequence_id = 2;
+                edge.to.as_str()
+            }
+            _ => {
+                nodes.push(self.build_node_state(&self.current_node, 0, true, map));
+                self.current_node.as_str()
+            }
+        };
+
+        let upcoming = match self.motion {
+            Motion::Idle => Vec::new(),
+            _ => self.scenario.upcoming(),
+        };
+        for next in &upcoming {
+            let Some(edge_id) = map.edge_between(at, next) else {
+                break;
+            };
+            let released = edges.len() < RELEASED_EDGES;
+            let edge = &map.edges[edge_id];
+            edges.push(self.build_edge_state(edge_id, edge, sequence_id + 1, released));
+            nodes.push(self.build_node_state(next, sequence_id + 2, released, map));
+            sequence_id += 2;
+            at = next;
+        }
+
+        (nodes, edges)
+    }
+
+    fn build_node_state(
+        &self,
+        node_id: &str,
+        sequence_id: i64,
+        released: bool,
+        map: &NodeMap,
+    ) -> NodeState {
+        NodeState {
+            node_id: node_id.to_string(),
+            sequence_id,
+            released,
+            node_position: map.nodes.get(node_id).map(|n| NodePosition {
+                x: n.x,
+                y: n.y,
+                theta: Some(n.theta.unwrap_or(0.0)),
+                map_id: map.map_id.clone(),
+            }),
+            node_description: None,
+        }
+    }
+
+    fn build_edge_state(
+        &self,
+        edge_id: &str,
+        edge: &Edge,
+        sequence_id: i64,
+        released: bool,
+    ) -> EdgeState {
         let trajectory = edge.curve.as_ref().map(|nurbs| Trajectory {
             degree: nurbs.degree as i64,
             knot_vector: nurbs.knots.clone(),
@@ -228,8 +283,8 @@ impl AgvSimulator {
 
         EdgeState {
             edge_id: edge_id.to_string(),
-            sequence_id: 1,
-            released: true,
+            sequence_id,
+            released,
             trajectory,
             edge_description: None,
         }
